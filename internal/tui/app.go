@@ -40,7 +40,7 @@ func NewAppModel(s *state.State, root string, claudeClient claude.Claude) AppMod
 		phase:     s.Phase,
 		planning:  NewPlanningModel(s, root, claudeClient, nil),
 		review:    NewReviewModel(s, root),
-		inputs:    NewInputsModel(),
+		inputs:    NewInputsModel(s, root),
 		execution: NewExecutionModel(),
 	}
 }
@@ -53,7 +53,12 @@ func (m *AppModel) SetProgram(p *tea.Program) {
 }
 
 func (m *AppModel) Init() tea.Cmd {
-	return m.planning.Init()
+	switch m.phase {
+	case state.PhaseInputs:
+		return m.inputs.Init()
+	default:
+		return m.planning.Init()
+	}
 }
 
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -95,6 +100,8 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.planning = NewPlanningModel(m.state, m.stateRoot, m.claude, m.program)
 		case state.PhaseReview:
 			m.review = NewReviewModel(m.state, m.stateRoot)
+		case state.PhaseInputs:
+			m.inputs = NewInputsModel(m.state, m.stateRoot)
 		}
 
 		return m, nil

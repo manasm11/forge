@@ -99,8 +99,25 @@ type Settings struct {
 	BranchPattern string            `json:"branch_pattern"`
 	MaxRetries    int               `json:"max_retries"`
 	AutoPR        bool              `json:"auto_pr"`
+	ClaudeModel   string            `json:"claude_model,omitempty"`
+	MaxTurns      MaxTurnsConfig    `json:"max_turns"`
+	MCPServers    []MCPServerConfig `json:"mcp_servers,omitempty"`
 	EnvVars       map[string]string `json:"env_vars,omitempty"`
 	ExtraContext  string            `json:"extra_context,omitempty"`
+}
+
+// MaxTurnsConfig maps task complexity to max claude turns.
+type MaxTurnsConfig struct {
+	Small  int `json:"small"`
+	Medium int `json:"medium"`
+	Large  int `json:"large"`
+}
+
+// MCPServerConfig stores a configured MCP server.
+type MCPServerConfig struct {
+	Name    string   `json:"name"`
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
 }
 
 const forgeDirName = ".forge"
