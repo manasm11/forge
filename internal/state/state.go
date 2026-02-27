@@ -350,7 +350,8 @@ func (s *State) TrimConversationHistory(maxMessages int) {
 }
 
 // ExecutableTasks returns pending tasks whose dependencies are all done.
-// Tasks whose dependencies include a failed or cancelled task are automatically skipped.
+// Tasks whose dependencies include a failed, cancelled, or skipped task are automatically skipped.
+// This cascades: if A fails, B (depends on A) is skipped, and C (depends on B) is also skipped.
 func (s *State) ExecutableTasks() []Task {
 	// Build a status map for quick lookup
 	statusMap := make(map[string]TaskStatus, len(s.Tasks))
@@ -358,17 +359,22 @@ func (s *State) ExecutableTasks() []Task {
 		statusMap[t.ID] = t.Status
 	}
 
-	// Skip tasks with blocked dependencies
-	for i := range s.Tasks {
-		if s.Tasks[i].Status != TaskPending {
-			continue
-		}
-		for _, dep := range s.Tasks[i].DependsOn {
-			depStatus := statusMap[dep]
-			if depStatus == TaskFailed || depStatus == TaskCancelled {
-				s.Tasks[i].Status = TaskSkipped
-				statusMap[s.Tasks[i].ID] = TaskSkipped
-				break
+	// Skip tasks with blocked dependencies. Loop until stable since skips cascade.
+	changed := true
+	for changed {
+		changed = false
+		for i := range s.Tasks {
+			if s.Tasks[i].Status != TaskPending {
+				continue
+			}
+			for _, dep := range s.Tasks[i].DependsOn {
+				depStatus := statusMap[dep]
+				if depStatus == TaskFailed || depStatus == TaskCancelled || depStatus == TaskSkipped {
+					s.Tasks[i].Status = TaskSkipped
+					statusMap[s.Tasks[i].ID] = TaskSkipped
+					changed = true
+					break
+				}
 			}
 		}
 	}
