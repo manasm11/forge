@@ -1,17 +1,20 @@
 package tui
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/manasm11/forge/internal/state"
 )
 
 type ReviewModel struct {
+	state         *state.State
 	width, height int
 }
 
-func NewReviewModel() ReviewModel {
-	return ReviewModel{}
+func NewReviewModel(s *state.State) ReviewModel {
+	return ReviewModel{state: s}
 }
 
 func (m ReviewModel) Init() tea.Cmd {
@@ -40,11 +43,16 @@ func (m ReviewModel) View() string {
 		Bold(true).
 		Foreground(Primary).
 		MarginBottom(1).
-		Render("Phase 2: Issue Review")
+		Render("Phase 2: Task Review")
+
+	taskCount := 0
+	if m.state != nil {
+		taskCount = len(m.state.Tasks)
+	}
 
 	body := lipgloss.NewStyle().
 		Foreground(Text).
-		Render("This phase will let you review and edit generated issues.")
+		Render(fmt.Sprintf("%d tasks generated from planning.\n[This will be a full interactive review in the next milestone]", taskCount))
 
 	help := HelpStyle.Render("ctrl+n: continue to Input Collection →  |  ctrl+p: go back to Planning ←")
 

@@ -1,21 +1,111 @@
 package tui
 
 import (
-	"github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"context"
+	"fmt"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/manasm11/forge/internal/claude"
 	"github.com/manasm11/forge/internal/state"
+	"github.com/manasm11/forge/internal/tui/components"
 )
 
+// PlanningModel manages the planning phase conversation with Claude.
 type PlanningModel struct {
-	width, height int
+	chat                components.ChatModel
+	state               *state.State
+	stateRoot           string
+	claude              *claude.Client
+	isReplanning        bool
+	firstMessageSent    bool
+	restartConfirmed    bool
+	width, height       int
 }
 
-func NewPlanningModel() PlanningModel {
-	return PlanningModel{}
+// planningResponseMsg wraps a claude response and carries the raw text
+// so we can check for plan tags in Update().
+type planningResponseMsg struct {
+	text    string
+	rawJSON string
+}
+
+// restartMsg signals that the chat should be restarted.
+type restartMsg struct{}
+
+// NewPlanningModel creates a new planning phase model.
+func NewPlanningModel(s *state.State, root string, claudeClient *claude.Client) PlanningModel {
+	isReplanning := s.PlanVersion > 0 || len(s.Tasks) > 0
+
+	m := PlanningModel{
+		state:        s,
+		stateRoot:    root,
+		claude:       claudeClient,
+		isReplanning: isReplanning,
+	}
+
+	sender := m.createSender()
+	handler := m.createSlashHandler()
+	chat := components.NewChatModel(sender, handler)
+
+	if isReplanning {
+		completed := len(s.CompletedTasks())
+		pending := len(s.PendingTasks())
+		chat.AddMessage(components.RoleSystem, fmt.Sprintf(
+			"Welcome back to planning! \u2692\n\n"+
+				"You have %d completed tasks, %d pending tasks.\n"+
+				"Tell me what changes you'd like to make to the plan.\n\n"+
+				"Commands: /done \u00b7 /summary \u00b7 /restart",
+			completed, pending))
+
+		// Restore previous conversation history
+		for _, msg := range s.ConversationHistory {
+			switch msg.Role {
+			case "user":
+				chat.AddMessage(components.RoleUser, msg.Content)
+			case "assistant":
+				chat.AddMessage(components.RoleAssistant, msg.Content)
+			case "system":
+				chat.AddMessage(components.RoleSystem, msg.Content)
+			}
+		}
+	} else {
+		welcome := "Welcome to Forge! \u2692\n\n" +
+			"I'll help you plan your project through conversation.\n" +
+			"Describe what you want to build and I'll ask questions to understand the details.\n\n" +
+			"Commands: /done \u00b7 /summary \u00b7 /restart"
+		chat.AddMessage(components.RoleSystem, welcome)
+
+		// Show project snapshot if existing project detected
+		if s.Snapshot != nil && s.Snapshot.IsExisting {
+			snap := s.Snapshot
+			var details strings.Builder
+			details.WriteString("Detected existing project:\n")
+			if snap.Language != "" {
+				details.WriteString(fmt.Sprintf("  Language: %s\n", snap.Language))
+			}
+			details.WriteString(fmt.Sprintf("  Files: %d files (~%s lines)\n", snap.FileCount, formatLOC(snap.LOC)))
+			if len(snap.Frameworks) > 0 {
+				details.WriteString(fmt.Sprintf("  Frameworks: %s\n", strings.Join(snap.Frameworks, ", ")))
+			}
+			if snap.GitBranch != "" {
+				commitInfo := ""
+				if len(snap.RecentCommits) > 0 {
+					commitInfo = fmt.Sprintf(", %d commits", len(snap.RecentCommits))
+				}
+				details.WriteString(fmt.Sprintf("  Git: %s branch%s\n", snap.GitBranch, commitInfo))
+			}
+			details.WriteString("\nI'll suggest changes that fit your existing codebase.")
+			chat.AddMessage(components.RoleSystem, details.String())
+		}
+	}
+
+	m.chat = chat
+	return m
 }
 
 func (m PlanningModel) Init() tea.Cmd {
-	return nil
+	return m.chat.Init()
 }
 
 func (m PlanningModel) Update(msg tea.Msg) (PlanningModel, tea.Cmd) {
@@ -27,29 +117,371 @@ func (m PlanningModel) Update(msg tea.Msg) (PlanningModel, tea.Cmd) {
 				return TransitionMsg{To: state.PhaseReview}
 			}
 		}
+
+	case planningResponseMsg:
+		// Send text to chat for display
+		cmd := m.chat.ReceiveResponse(msg.text)
+
+		// Check for final plan tags (initial planning)
+		plan, err := claude.ExtractFinalPlan(msg.text)
+		if err != nil {
+			m.chat.AddMessage(components.RoleSystem, fmt.Sprintf("Error parsing plan: %v", err))
+			return m, cmd
+		}
+		if plan != nil {
+			m.applyFinalPlan(plan)
+			return m, func() tea.Msg {
+				return TransitionMsg{To: state.PhaseReview}
+			}
+		}
+
+		// Check for plan update tags (replanning)
+		update, err := claude.ExtractPlanUpdate(msg.text)
+		if err != nil {
+			m.chat.AddMessage(components.RoleSystem, fmt.Sprintf("Error parsing plan update: %v", err))
+			return m, cmd
+		}
+		if update != nil {
+			if err := applyPlanUpdate(m.state, update); err != nil {
+				m.chat.AddMessage(components.RoleSystem, fmt.Sprintf("Error applying plan update: %v", err))
+				return m, cmd
+			}
+			m.state.BumpPlanVersion(update.Summary)
+			_ = state.Save(m.stateRoot, m.state)
+			return m, func() tea.Msg {
+				return TransitionMsg{To: state.PhaseReview}
+			}
+		}
+
+		return m, cmd
+
+	case restartMsg:
+		m.chat.ClearMessages()
+		m.firstMessageSent = false
+		m.restartConfirmed = false
+		if m.isReplanning {
+			completed := len(m.state.CompletedTasks())
+			pending := len(m.state.PendingTasks())
+			m.chat.AddMessage(components.RoleSystem, fmt.Sprintf(
+				"Conversation restarted. You have %d completed, %d pending tasks.\nDescribe what changes you'd like.",
+				completed, pending))
+		} else {
+			m.state.ConversationHistory = nil
+			m.chat.AddMessage(components.RoleSystem,
+				"Chat restarted. Describe what you want to build!")
+		}
+		return m, nil
 	}
-	return m, nil
+
+	var cmd tea.Cmd
+	m.chat, cmd = m.chat.Update(msg)
+	return m, cmd
 }
 
 func (m PlanningModel) View() string {
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(Primary).
-		MarginBottom(1).
-		Render("Phase 1: Interactive Planning")
-
-	body := lipgloss.NewStyle().
-		Foreground(Text).
-		Render("This phase will let you chat with Claude to plan your project.")
-
-	help := HelpStyle.Render("ctrl+n: continue to Issue Review →")
-
-	content := lipgloss.JoinVertical(lipgloss.Left, title, body, "", help)
-
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+	return m.chat.View()
 }
 
 func (m *PlanningModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
+	m.chat.SetSize(w, h)
+}
+
+// createSender returns the MessageSender that communicates with Claude.
+func (m *PlanningModel) createSender() components.MessageSender {
+	return func(text string) tea.Cmd {
+		return func() tea.Msg {
+			// Save user message to conversation history
+			m.state.AddConversationMessage("user", text)
+
+			if m.claude == nil {
+				return components.ResponseMsg{
+					Err: fmt.Errorf("Claude CLI not available. Please install it and restart forge."),
+				}
+			}
+
+			var resp *claude.Response
+			var err error
+
+			if !m.firstMessageSent {
+				m.firstMessageSent = true
+				prompt := m.buildFirstPrompt(text)
+				resp, err = m.claude.Send(context.Background(), prompt)
+			} else {
+				resp, err = m.claude.Continue(context.Background(), text)
+			}
+
+			if err != nil {
+				return components.ResponseMsg{Err: err}
+			}
+
+			// Save assistant response to conversation history
+			m.state.AddConversationMessage("assistant", resp.Text)
+			_ = state.Save(m.stateRoot, m.state)
+
+			return planningResponseMsg{
+				text:    resp.Text,
+				rawJSON: resp.RawJSON,
+			}
+		}
+	}
+}
+
+// buildFirstPrompt constructs the initial prompt with system context.
+func (m *PlanningModel) buildFirstPrompt(userMessage string) string {
+	var prompt strings.Builder
+
+	if m.isReplanning {
+		fmt.Fprintf(&prompt, claude.ReplanningPrompt, m.state.GenerateReplanContext())
+	} else {
+		prompt.WriteString(claude.InitialPlanningPrompt)
+
+		// Append project context if available
+		if m.state.Snapshot != nil && m.state.Snapshot.IsExisting {
+			snap := m.state.Snapshot
+			prompt.WriteString("\n\nEXISTING PROJECT CONTEXT:\n")
+			if snap.Language != "" {
+				fmt.Fprintf(&prompt, "Language: %s\n", snap.Language)
+			}
+			if len(snap.Frameworks) > 0 {
+				fmt.Fprintf(&prompt, "Frameworks: %s\n", strings.Join(snap.Frameworks, ", "))
+			}
+			if len(snap.Dependencies) > 0 {
+				fmt.Fprintf(&prompt, "Dependencies: %s\n", strings.Join(snap.Dependencies, ", "))
+			}
+			if snap.Structure != "" {
+				fmt.Fprintf(&prompt, "Project Structure:\n%s\n", snap.Structure)
+			}
+			if len(snap.KeyFiles) > 0 {
+				fmt.Fprintf(&prompt, "Key Files: %s\n", strings.Join(snap.KeyFiles, ", "))
+			}
+			if len(snap.RecentCommits) > 0 {
+				prompt.WriteString("Recent Git History:\n")
+				for _, c := range snap.RecentCommits {
+					fmt.Fprintf(&prompt, "  %s\n", c)
+				}
+			}
+			if snap.ReadmeContent != "" {
+				fmt.Fprintf(&prompt, "README Summary:\n%s\n", snap.ReadmeContent)
+			}
+			if snap.ClaudeMD != "" {
+				fmt.Fprintf(&prompt, "CLAUDE.md:\n%s\n", snap.ClaudeMD)
+			}
+		}
+	}
+
+	fmt.Fprintf(&prompt, "\n\nUser: %s", userMessage)
+	return prompt.String()
+}
+
+// createSlashHandler returns the slash command handler for the planning phase.
+func (m *PlanningModel) createSlashHandler() components.SlashHandler {
+	return func(cmd components.SlashCommand) (tea.Cmd, bool) {
+		switch cmd.Name {
+		case "done":
+			return m.handleDone(), true
+		case "summary":
+			return m.handleSummary(), true
+		case "restart":
+			return m.handleRestart(), true
+		default:
+			return nil, false
+		}
+	}
+}
+
+func (m *PlanningModel) handleDone() tea.Cmd {
+	if m.claude == nil {
+		return func() tea.Msg {
+			return components.ResponseMsg{
+				Err: fmt.Errorf("Claude CLI not available"),
+			}
+		}
+	}
+
+	var instruction string
+	if m.isReplanning {
+		instruction = "The user has requested the updated plan. Based on everything discussed, generate the plan update now. Output inside <plan_update> tags with the JSON format specified."
+	} else {
+		instruction = "The user has requested the final plan. Based on everything discussed, generate the plan now. Output inside <final_plan> tags with the JSON format specified."
+	}
+
+	return func() tea.Msg {
+		m.state.AddConversationMessage("user", "/done")
+
+		var resp *claude.Response
+		var err error
+
+		if !m.firstMessageSent {
+			m.firstMessageSent = true
+			prompt := m.buildFirstPrompt(instruction)
+			resp, err = m.claude.Send(context.Background(), prompt)
+		} else {
+			resp, err = m.claude.Continue(context.Background(), instruction)
+		}
+
+		if err != nil {
+			return components.ResponseMsg{Err: err}
+		}
+
+		m.state.AddConversationMessage("assistant", resp.Text)
+		_ = state.Save(m.stateRoot, m.state)
+
+		return planningResponseMsg{
+			text:    resp.Text,
+			rawJSON: resp.RawJSON,
+		}
+	}
+}
+
+func (m *PlanningModel) handleSummary() tea.Cmd {
+	if m.claude == nil {
+		return func() tea.Msg {
+			return components.ResponseMsg{
+				Err: fmt.Errorf("Claude CLI not available"),
+			}
+		}
+	}
+
+	instruction := "Please summarize your current understanding of the project and what you'd include in the plan."
+
+	return func() tea.Msg {
+		m.state.AddConversationMessage("user", "/summary")
+
+		var resp *claude.Response
+		var err error
+
+		if !m.firstMessageSent {
+			m.firstMessageSent = true
+			prompt := m.buildFirstPrompt(instruction)
+			resp, err = m.claude.Send(context.Background(), prompt)
+		} else {
+			resp, err = m.claude.Continue(context.Background(), instruction)
+		}
+
+		if err != nil {
+			return components.ResponseMsg{Err: err}
+		}
+
+		m.state.AddConversationMessage("assistant", resp.Text)
+		_ = state.Save(m.stateRoot, m.state)
+
+		return planningResponseMsg{
+			text:    resp.Text,
+			rawJSON: resp.RawJSON,
+		}
+	}
+}
+
+func (m *PlanningModel) handleRestart() tea.Cmd {
+	if m.isReplanning && !m.restartConfirmed {
+		m.restartConfirmed = true
+		m.chat.AddMessage(components.RoleSystem,
+			"This will reset the conversation but keep your existing tasks. Type /restart again to confirm.")
+		return nil
+	}
+	return func() tea.Msg { return restartMsg{} }
+}
+
+// applyFinalPlan converts a PlanJSON into state tasks.
+func (m *PlanningModel) applyFinalPlan(plan *claude.PlanJSON) {
+	m.state.ProjectName = plan.ProjectName
+
+	// Build a mapping from task index to task ID for dependency resolution
+	taskIDs := make([]string, len(plan.Tasks))
+	for i := range plan.Tasks {
+		taskIDs[i] = m.state.NextTaskID()
+		// Reserve the ID by adding the task immediately
+		pt := plan.Tasks[i]
+		var deps []string
+		for _, depIdx := range pt.DependsOn {
+			if depIdx >= 0 && depIdx < len(taskIDs) {
+				deps = append(deps, taskIDs[depIdx])
+			}
+		}
+		m.state.AddTask(pt.Title, pt.Description, pt.Complexity, pt.AcceptanceCriteria, deps)
+	}
+
+	m.state.BumpPlanVersion("Initial plan")
+	_ = state.Save(m.stateRoot, m.state)
+}
+
+// applyPlanUpdate processes a PlanUpdateJSON and modifies state.Tasks accordingly.
+func applyPlanUpdate(s *state.State, update *claude.PlanUpdateJSON) error {
+	for _, t := range update.Tasks {
+		switch t.Action {
+		case "keep":
+			// do nothing
+
+		case "modify":
+			task := s.FindTask(t.ID)
+			if task == nil {
+				return fmt.Errorf("modify: task %q not found", t.ID)
+			}
+			if task.Status == state.TaskDone {
+				return fmt.Errorf("modify: cannot modify completed task %q", t.ID)
+			}
+			if t.Title != "" {
+				task.Title = t.Title
+			}
+			if t.Description != "" {
+				task.Description = t.Description
+			}
+			if len(t.AcceptanceCriteria) > 0 {
+				task.AcceptanceCriteria = t.AcceptanceCriteria
+			}
+			if len(t.DependsOn) > 0 {
+				task.DependsOn = t.DependsOn
+			}
+			if t.Complexity != "" {
+				task.Complexity = t.Complexity
+			}
+			task.PlanVersionModified = s.PlanVersion + 1
+
+		case "add":
+			s.AddTask(t.Title, t.Description, t.Complexity, t.AcceptanceCriteria, t.DependsOn)
+
+		case "remove":
+			if t.ID == "" {
+				return fmt.Errorf("remove: missing task ID")
+			}
+			task := s.FindTask(t.ID)
+			if task == nil {
+				return fmt.Errorf("remove: task %q not found", t.ID)
+			}
+			if task.Status == state.TaskDone {
+				return fmt.Errorf("remove: cannot remove completed task %q", t.ID)
+			}
+			reason := t.Reason
+			if reason == "" {
+				reason = "Removed during replanning"
+			}
+			if err := s.CancelTask(t.ID, reason); err != nil {
+				return fmt.Errorf("remove: %w", err)
+			}
+
+		default:
+			return fmt.Errorf("unknown action %q for task %q", t.Action, t.ID)
+		}
+	}
+
+	return nil
+}
+
+// formatLOC formats a line count for display (e.g., 3200 -> "3,200").
+func formatLOC(loc int) string {
+	s := fmt.Sprintf("%d", loc)
+	if len(s) <= 3 {
+		return s
+	}
+
+	var result strings.Builder
+	for i, ch := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result.WriteByte(',')
+		}
+		result.WriteRune(ch)
+	}
+	return result.String()
 }

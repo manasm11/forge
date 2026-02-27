@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/manasm11/forge/internal/claude"
 	"github.com/manasm11/forge/internal/state"
 )
 
@@ -17,6 +18,7 @@ type TransitionMsg struct {
 type AppModel struct {
 	state     *state.State
 	stateRoot string // project root directory
+	claude    *claude.Client
 	phase     state.Phase
 	planning  PlanningModel
 	review    ReviewModel
@@ -29,20 +31,21 @@ type AppModel struct {
 }
 
 // NewAppModel creates a new root model with the given state.
-func NewAppModel(s *state.State, root string) AppModel {
+func NewAppModel(s *state.State, root string, claudeClient *claude.Client) AppModel {
 	return AppModel{
 		state:     s,
 		stateRoot: root,
+		claude:    claudeClient,
 		phase:     s.Phase,
-		planning:  NewPlanningModel(),
-		review:    NewReviewModel(),
+		planning:  NewPlanningModel(s, root, claudeClient),
+		review:    NewReviewModel(s),
 		inputs:    NewInputsModel(),
 		execution: NewExecutionModel(),
 	}
 }
 
 func (m AppModel) Init() tea.Cmd {
-	return nil
+	return m.planning.Init()
 }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -77,6 +80,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := state.Save(m.stateRoot, m.state); err != nil {
 			m.err = err
 		}
+
+		// Recreate phase models on transition
+		switch msg.To {
+		case state.PhasePlanning:
+			m.planning = NewPlanningModel(m.state, m.stateRoot, m.claude)
+		case state.PhaseReview:
+			m.review = NewReviewModel(m.state)
+		}
+
 		return m, nil
 	}
 
