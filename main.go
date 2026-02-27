@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/manasm11/forge/internal/claude"
+	"github.com/manasm11/forge/internal/executor"
 	"github.com/manasm11/forge/internal/preflight"
 	"github.com/manasm11/forge/internal/scanner"
 	"github.com/manasm11/forge/internal/state"
@@ -102,8 +103,11 @@ func main() {
 		claudeClient = c
 	}
 
-	// 6. Create app model with state and claude client
-	app := tui.NewAppModel(s, root, claudeClient)
+	// 6. Create Claude executor for task execution
+	claudeExec := executor.NewRealClaudeExecutor(root)
+
+	// 7. Create app model with state and claude client
+	app := tui.NewAppModel(s, root, claudeClient, claudeExec)
 
 	// 7. Run bubbletea
 	p := tea.NewProgram(&app, tea.WithAltScreen())

@@ -3,9 +3,10 @@ package tui
 import (
 	"fmt"
 
-	"github.com/charmbracelet/bubbletea"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/manasm11/forge/internal/claude"
+	"github.com/manasm11/forge/internal/executor"
 	"github.com/manasm11/forge/internal/state"
 )
 
@@ -16,32 +17,33 @@ type TransitionMsg struct {
 
 // AppModel is the root bubbletea model managing phase transitions.
 type AppModel struct {
-	state     *state.State
-	stateRoot string // project root directory
-	claude    claude.Claude
-	program   *tea.Program
-	phase     state.Phase
-	planning  PlanningModel
-	review    ReviewModel
-	inputs    InputsModel
-	execution ExecutionModel
-	width     int
-	height    int
-	err       error
-	quitting  bool
+	state      *state.State
+	stateRoot  string // project root directory
+	claude     claude.Claude
+	claudeExec executor.ClaudeExecutor
+	program    *tea.Program
+	phase      state.Phase
+	planning   PlanningModel
+	review     ReviewModel
+	inputs     InputsModel
+	execution  ExecutionModel
+	width      int
+	height     int
+	err        error
+	quitting   bool
 }
 
 // NewAppModel creates a new root model with the given state.
-func NewAppModel(s *state.State, root string, claudeClient claude.Claude) AppModel {
+func NewAppModel(s *state.State, root string, claudeClient claude.Claude, claudeExec executor.ClaudeExecutor) AppModel {
 	return AppModel{
-		state:     s,
-		stateRoot: root,
-		claude:    claudeClient,
-		phase:     s.Phase,
-		planning:  NewPlanningModel(s, root, claudeClient, nil),
-		review:    NewReviewModel(s, root),
-		inputs:    NewInputsModel(s, root),
-		execution: NewExecutionModel(),
+		state:      s,
+		stateRoot:  root,
+		claude:     claudeClient,
+		claudeExec: claudeExec,
+		phase:      s.Phase,
+		planning:   NewPlanningModel(s, root, claudeClient, nil),
+		review:     NewReviewModel(s, root),
+		inputs:     NewInputsModel(s, root),
 	}
 }
 
@@ -50,12 +52,17 @@ func NewAppModel(s *state.State, root string, claudeClient claude.Claude) AppMod
 func (m *AppModel) SetProgram(p *tea.Program) {
 	m.program = p
 	m.planning.SetProgram(p)
+	m.execution.SetProgram(p)
 }
 
 func (m *AppModel) Init() tea.Cmd {
 	switch m.phase {
 	case state.PhaseInputs:
 		return m.inputs.Init()
+	case state.PhaseExecution:
+		m.execution = NewExecutionModel(m.state, m.stateRoot, m.claudeExec)
+		m.execution.SetProgram(m.program)
+		return tea.Batch(m.execution.Init(), m.execution.StartExecution())
 	default:
 		return m.planning.Init()
 	}
@@ -95,6 +102,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Recreate phase models on transition
+		var initCmd tea.Cmd
 		switch msg.To {
 		case state.PhasePlanning:
 			m.planning = NewPlanningModel(m.state, m.stateRoot, m.claude, m.program)
@@ -102,9 +110,14 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.review = NewReviewModel(m.state, m.stateRoot)
 		case state.PhaseInputs:
 			m.inputs = NewInputsModel(m.state, m.stateRoot)
+		case state.PhaseExecution:
+			m.execution = NewExecutionModel(m.state, m.stateRoot, m.claudeExec)
+			m.execution.SetProgram(m.program)
+			m.execution.SetSize(m.width, m.height-4)
+			initCmd = tea.Batch(m.execution.Init(), m.execution.StartExecution())
 		}
 
-		return m, nil
+		return m, initCmd
 	}
 
 	// Delegate to active phase
