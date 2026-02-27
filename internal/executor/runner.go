@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/manasm11/forge/internal/provider"
 	"github.com/manasm11/forge/internal/state"
 )
 
@@ -123,16 +124,22 @@ func (r *Runner) RunTask(ctx context.Context, task *state.Task) TaskOutcome {
 			prompt = BuildRetryPrompt(attempt, maxRetries, lastTestOutput)
 		}
 
+		// Build provider env vars
+		providerEnv := provider.EnvVarsForProvider(settings.Provider)
+
+		// Merge: settings.EnvVars + provider env vars (provider wins on collision)
+		mergedEnv := provider.MergeEnvVars(settings.EnvVars, providerEnv)
+
 		// Run Claude
 		r.emit(TaskEvent{TaskID: task.ID, Type: EventClaudeStart})
 		result, err := r.cfg.Claude.Execute(ctx, ExecuteOpts{
 			Prompt:       prompt,
 			SystemPrompt: BuildExecutionSystemPrompt(),
-			Model:        settings.ClaudeModel,
+			Model:        settings.Provider.Model, // use provider model, not settings.ClaudeModel
 			MaxTurns:     MaxTurnsForTask(task.Complexity, settings.MaxTurns),
 			AllowedTools: BuildAllowedTools(settings.MCPServers),
 			WorkDir:      r.cfg.StateRoot,
-			EnvVars:      settings.EnvVars,
+			EnvVars:      mergedEnv,
 			OnChunk: func(text string) {
 				r.emit(TaskEvent{TaskID: task.ID, Type: EventClaudeChunk, Detail: text})
 			},

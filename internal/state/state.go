@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/manasm11/forge/internal/provider"
 )
 
 type Phase string
@@ -104,6 +106,7 @@ type Settings struct {
 	MCPServers    []MCPServerConfig `json:"mcp_servers,omitempty"`
 	EnvVars       map[string]string `json:"env_vars,omitempty"`
 	ExtraContext  string            `json:"extra_context,omitempty"`
+	Provider      provider.Config   `json:"provider"`           // NEW
 }
 
 // MaxTurnsConfig maps task complexity to max claude turns.

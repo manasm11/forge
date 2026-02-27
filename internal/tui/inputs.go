@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,8 +14,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/manasm11/forge/internal/generator"
+	"github.com/manasm11/forge/internal/provider"
 	"github.com/manasm11/forge/internal/state"
 )
+
+// ollamaDetectionDoneMsg is sent when Ollama detection completes.
+type ollamaDetectionDoneMsg struct {
+	models []string
+	err    string
+}
 
 // editorDoneMsg is sent when $EDITOR closes for the extra context field.
 type editorDoneMsg struct {
@@ -27,17 +35,22 @@ type clearFlashMsg struct{}
 
 // InputsModel manages the input collection phase.
 type InputsModel struct {
-	fields     []InputField
-	mcpServers []MCPServer
-	maxTurns   MaxTurnsConfig
-	cursor     int // index into the combined navigation items
-	textInputs []textinput.Model
-	state      *state.State
-	stateRoot  string
-	width      int
-	height     int
-	flashMsg   string
-	flashErr   bool // true if flashMsg is an error
+	fields        []InputField
+	mcpServers    []MCPServer
+	maxTurns      MaxTurnsConfig
+	cursor        int // index into the combined navigation items
+	textInputs    []textinput.Model
+	state         *state.State
+	stateRoot     string
+	width         int
+	height        int
+	flashMsg      string
+	flashErr      bool // true if flashMsg is an error
+	providerType  provider.ProviderType // currently selected provider
+	ollamaURL     string                // Ollama URL if using Ollama
+	ollamaModels  []string              // available Ollama models
+	ollamaChecked bool                  // whether Ollama detection has completed
+	ollamaError   string                // error from Ollama detection if any
 }
 
 // Navigation sections: fields (0..len(fields)-1), then MCP servers, then max turns fields.
@@ -54,6 +67,11 @@ func NewInputsModel(s *state.State, root string) InputsModel {
 	mcpServers := DefaultMCPServers()
 	maxTurns := DefaultMaxTurns()
 
+	// Initialize provider fields
+	providerType := provider.ProviderAnthropic
+	ollamaURL := provider.DefaultOllamaURL()
+	var ollamaModels []string
+
 	// Pre-populate from existing settings if available
 	if s.Settings != nil {
 		populateFromSettings(fields, s.Settings)
@@ -67,6 +85,15 @@ func NewInputsModel(s *state.State, root string) InputsModel {
 		if s.Settings.MaxTurns.Large > 0 {
 			maxTurns.Large = s.Settings.MaxTurns.Large
 		}
+
+		// Populate provider settings if available
+		if s.Settings.Provider.Type != "" {
+			providerType = s.Settings.Provider.Type
+		}
+		if s.Settings.Provider.OllamaURL != "" {
+			ollamaURL = s.Settings.Provider.OllamaURL
+		}
+		// Model will be populated from the ClaudeModel field
 	}
 
 	// Create text inputs for text/number fields
@@ -99,13 +126,16 @@ func NewInputsModel(s *state.State, root string) InputsModel {
 	}
 
 	m := InputsModel{
-		fields:     fields,
-		mcpServers: mcpServers,
-		maxTurns:   maxTurns,
-		cursor:     0,
-		textInputs: textInputs,
-		state:      s,
-		stateRoot:  root,
+		fields:       fields,
+		mcpServers:   mcpServers,
+		maxTurns:     maxTurns,
+		cursor:       0,
+		textInputs:   textInputs,
+		state:        s,
+		stateRoot:    root,
+		providerType: providerType,
+		ollamaURL:    ollamaURL,
+		ollamaModels: ollamaModels,
 	}
 
 	return m
@@ -159,20 +189,54 @@ func populateMCPFromSettings(servers []MCPServer, settings *state.Settings) {
 }
 
 func (m InputsModel) Init() tea.Cmd {
-	return textinput.Blink
+	// Start Ollama detection in the background
+	return tea.Batch(
+		textinput.Blink,
+		func() tea.Msg {
+			// Run Ollama detection
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+
+			status := provider.DetectOllama(ctx, "")
+
+			if !status.Available {
+				return ollamaDetectionDoneMsg{
+					models: nil,
+					err:    status.Error,
+				}
+			}
+
+			// Extract model names
+			models := make([]string, len(status.Models))
+			for i, model := range status.Models {
+				models[i] = provider.FormatModelName(model.Name)
+			}
+
+			return ollamaDetectionDoneMsg{
+				models: models,
+				err:    "",
+			}
+		},
+	)
 }
 
 // totalItems returns the total number of navigable items.
 func (m InputsModel) totalItems() int {
-	return len(m.fields) + len(m.mcpServers)
+	// Provider selection takes 2 positions (Anthropic and Ollama)
+	return 2 + len(m.fields) + len(m.mcpServers)
 }
 
 // cursorZone returns which zone the cursor is in and the local index.
+// Zones: 0=provider selection, 1=fields, 2=MCP servers
 func (m InputsModel) cursorZone() (zone int, localIdx int) {
-	if m.cursor < len(m.fields) {
-		return zoneFields, m.cursor
+	if m.cursor < 2 {
+		return 0, m.cursor // provider selection
 	}
-	return zoneMCP, m.cursor - len(m.fields)
+	cursorAdjusted := m.cursor - 2
+	if cursorAdjusted < len(m.fields) {
+		return 1, cursorAdjusted // fields
+	}
+	return 2, cursorAdjusted - len(m.fields) // MCP servers
 }
 
 func (m InputsModel) Update(msg tea.Msg) (InputsModel, tea.Cmd) {
@@ -186,19 +250,25 @@ func (m InputsModel) Update(msg tea.Msg) (InputsModel, tea.Cmd) {
 		case "c":
 			// Don't capture 'c' if typing in a text input
 			zone, _ := m.cursorZone()
-			if zone == zoneFields {
-				f := m.fields[m.cursor]
-				if f.FieldType == FieldText || f.FieldType == FieldNumber {
-					break // let text input handle it
+			if zone == 1 { // fields zone
+				_, localIdx := m.cursorZone()
+				if localIdx < len(m.fields) {
+					f := m.fields[localIdx]
+					if f.FieldType == FieldText || f.FieldType == FieldNumber {
+						break // let text input handle it
+					}
 				}
 			}
 			return m.confirm()
 		case "b":
 			zone, _ := m.cursorZone()
-			if zone == zoneFields {
-				f := m.fields[m.cursor]
-				if f.FieldType == FieldText || f.FieldType == FieldNumber {
-					break // let text input handle it
+			if zone == 1 { // fields zone
+				_, localIdx := m.cursorZone()
+				if localIdx < len(m.fields) {
+					f := m.fields[localIdx]
+					if f.FieldType == FieldText || f.FieldType == FieldNumber {
+						break // let text input handle it
+					}
 				}
 			}
 			return m, func() tea.Msg {
@@ -206,10 +276,13 @@ func (m InputsModel) Update(msg tea.Msg) (InputsModel, tea.Cmd) {
 			}
 		case "q":
 			zone, _ := m.cursorZone()
-			if zone == zoneFields {
-				f := m.fields[m.cursor]
-				if f.FieldType == FieldText || f.FieldType == FieldNumber {
-					break // let text input handle it
+			if zone == 1 { // fields zone
+				_, localIdx := m.cursorZone()
+				if localIdx < len(m.fields) {
+					f := m.fields[localIdx]
+					if f.FieldType == FieldText || f.FieldType == FieldNumber {
+						break // let text input handle it
+					}
 				}
 			}
 			return m, tea.Quit
@@ -250,11 +323,21 @@ func (m InputsModel) Update(msg tea.Msg) (InputsModel, tea.Cmd) {
 		m.flashMsg = ""
 		m.flashErr = false
 		return m, nil
+
+	case ollamaDetectionDoneMsg:
+		m.ollamaChecked = true
+		if msg.err != "" {
+			m.ollamaError = msg.err
+		} else {
+			m.ollamaModels = msg.models
+			m.ollamaError = ""
+		}
+		return m, nil
 	}
 
 	// Delegate to active text input
 	zone, localIdx := m.cursorZone()
-	if zone == zoneFields && localIdx < len(m.textInputs) {
+	if zone == 1 && localIdx < len(m.textInputs) { // fields zone
 		f := m.fields[localIdx]
 		if f.FieldType == FieldText || f.FieldType == FieldNumber {
 			var cmd tea.Cmd
@@ -275,7 +358,7 @@ func (m InputsModel) moveCursor(delta int) InputsModel {
 
 	// Blur current text input
 	zone, localIdx := m.cursorZone()
-	if zone == zoneFields && localIdx < len(m.textInputs) {
+	if zone == 1 && localIdx < len(m.textInputs) { // zoneFields is now 1
 		m.textInputs[localIdx].Blur()
 	}
 
@@ -289,7 +372,7 @@ func (m InputsModel) moveCursor(delta int) InputsModel {
 
 	// Focus new text input
 	zone, localIdx = m.cursorZone()
-	if zone == zoneFields && localIdx < len(m.textInputs) {
+	if zone == 1 && localIdx < len(m.textInputs) { // zoneFields is now 1
 		f := m.fields[localIdx]
 		if f.FieldType == FieldText || f.FieldType == FieldNumber {
 			m.textInputs[localIdx].Focus()
@@ -303,7 +386,14 @@ func (m InputsModel) handleSpace() (InputsModel, tea.Cmd) {
 	zone, localIdx := m.cursorZone()
 
 	switch zone {
-	case zoneFields:
+	case 0: // provider selection
+		if localIdx == 0 { // Anthropic
+			m.providerType = provider.ProviderAnthropic
+		} else if localIdx == 1 { // Ollama
+			m.providerType = provider.ProviderOllama
+		}
+		return m, nil
+	case 1: // fields zone
 		f := m.fields[localIdx]
 		if f.FieldType == FieldToggle {
 			val := m.resolveValue(localIdx)
@@ -315,7 +405,7 @@ func (m InputsModel) handleSpace() (InputsModel, tea.Cmd) {
 			m.textInputs[localIdx].SetValue(m.fields[localIdx].Value)
 			return m, nil
 		}
-	case zoneMCP:
+	case 2: // MCP zone
 		if localIdx < len(m.mcpServers) {
 			m.mcpServers[localIdx].Enabled = !m.mcpServers[localIdx].Enabled
 			return m, nil
@@ -327,7 +417,12 @@ func (m InputsModel) handleSpace() (InputsModel, tea.Cmd) {
 
 func (m InputsModel) handleEnter() (InputsModel, tea.Cmd) {
 	zone, localIdx := m.cursorZone()
-	if zone == zoneFields {
+
+	switch zone {
+	case 0: // provider selection
+		// Enter on provider selection could toggle like space
+		return m.handleSpace()
+	case 1: // fields zone
 		f := m.fields[localIdx]
 		if f.FieldType == FieldToggle {
 			return m.handleSpace()
@@ -389,8 +484,26 @@ func (m InputsModel) confirm() (InputsModel, tea.Cmd) {
 		})
 	}
 
+	// Build provider config
+	fieldMap := make(map[string]string)
+	for _, f := range m.fields {
+		val := f.Value
+		if val == "" {
+			val = f.Default
+		}
+		fieldMap[f.Key] = val
+	}
+
+	providerCfg := provider.Config{
+		Type:  m.providerType,
+		Model: fieldMap["claude_model"],
+	}
+	if m.providerType == provider.ProviderOllama {
+		providerCfg.OllamaURL = m.ollamaURL
+	}
+
 	// Build settings
-	settings := BuildSettingsFromFields(m.fields, m.mcpServers, m.maxTurns)
+	settings := BuildSettingsFromFieldsWithProvider(m.fields, m.mcpServers, m.maxTurns, providerCfg)
 	m.state.Settings = settings
 
 	// Write .forge/context.md
@@ -509,6 +622,9 @@ func (m InputsModel) View() string {
 		Render(fmt.Sprintf("Plan v%d · %d tasks", m.state.PlanVersion, stats))
 	sections = append(sections, header)
 	sections = append(sections, "")
+
+	// Provider Selection
+	sections = append(sections, m.renderProviderSelection())
 
 	// Render each field
 	for i, f := range m.fields {
@@ -645,6 +761,71 @@ func (m InputsModel) renderMCPServer(srv MCPServer, active bool) string {
 	descStyle := lipgloss.NewStyle().Foreground(Muted)
 	line := fmt.Sprintf("%s %s — %s", checkbox, srv.Name, descStyle.Render(srv.Description))
 	return style.Render(line)
+}
+
+func (m InputsModel) renderProviderSelection() string {
+	var lines []string
+
+	// Provider Selection Header
+	header := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(Text).
+		PaddingLeft(2).
+		Render("Model Provider")
+	lines = append(lines, header)
+
+	// Provider Selection Box
+	var anthropicIndicator, ollamaIndicator string
+	if m.providerType == provider.ProviderAnthropic {
+		anthropicIndicator = "●"
+		ollamaIndicator = "○"
+	} else {
+		anthropicIndicator = "○"
+		ollamaIndicator = "●"
+	}
+
+	selection := fmt.Sprintf("%s Anthropic (cloud)   %s Ollama (local)", anthropicIndicator, ollamaIndicator)
+	box := lipgloss.NewStyle().
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(Border).
+		Padding(0, 1).
+		Render(selection)
+	lines = append(lines, lipgloss.NewStyle().PaddingLeft(2).Render(box))
+
+	// Ollama Status
+	if !m.ollamaChecked {
+		status := lipgloss.NewStyle().Foreground(Muted).PaddingLeft(2).Render("⏳ Checking for Ollama...")
+		lines = append(lines, status)
+	} else if m.ollamaError != "" {
+		status := lipgloss.NewStyle().Foreground(Danger).PaddingLeft(2).Render(fmt.Sprintf("⚠ Ollama not detected: %s", m.ollamaError))
+		lines = append(lines, status)
+	} else {
+		modelCount := len(m.ollamaModels)
+		status := lipgloss.NewStyle().Foreground(Success).PaddingLeft(2).Render(
+			fmt.Sprintf("✅ Ollama detected (%d model%s available)", modelCount, pluralize(modelCount)))
+		lines = append(lines, status)
+
+		// Show Ollama URL and model selection when Ollama is selected
+		if m.providerType == provider.ProviderOllama {
+			urlLine := lipgloss.NewStyle().PaddingLeft(4).Render(fmt.Sprintf("URL: %s", m.ollamaURL))
+			lines = append(lines, urlLine)
+
+			if len(m.ollamaModels) > 0 {
+				modelsLine := lipgloss.NewStyle().Foreground(Muted).PaddingLeft(4).Render(
+					fmt.Sprintf("💡 Recommended: 64K+ context for best results"))
+				lines = append(lines, modelsLine)
+			}
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func pluralize(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func computeTaskStatsForInputs(s *state.State) int {

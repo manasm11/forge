@@ -11,6 +11,7 @@ var (
 	Danger    = lipgloss.Color("#EF4444") // red
 	Muted     = lipgloss.Color("#6B7280") // gray
 	Text      = lipgloss.Color("#E5E7EB") // light gray
+	Border    = lipgloss.Color("#4B5563") // border gray
 
 	// Reusable styles
 	TitleStyle = lipgloss.NewStyle().

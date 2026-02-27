@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/manasm11/forge/internal/provider"
 	"github.com/manasm11/forge/internal/state"
 )
 
@@ -43,6 +44,56 @@ type MaxTurnsConfig struct {
 	Small  int `json:"small"`
 	Medium int `json:"medium"`
 	Large  int `json:"large"`
+}
+
+// DefaultProviderConfig returns the default provider config.
+// Even if Ollama is detected, default is Anthropic (user must opt in).
+func DefaultProviderConfig(ollamaStatus *provider.OllamaStatus) provider.Config {
+	return provider.DefaultConfig()
+}
+
+// BuildProviderConfigFromFields extracts a provider.Config from form field values.
+func BuildProviderConfigFromFields(fields map[string]string) provider.Config {
+	cfg := provider.Config{
+		Type:  provider.ProviderType(fields["provider_type"]),
+		Model: fields["claude_model"],
+	}
+	if cfg.Type == provider.ProviderOllama {
+		cfg.OllamaURL = fields["ollama_url"]
+		if cfg.OllamaURL == "" {
+			cfg.OllamaURL = provider.DefaultOllamaURL()
+		}
+	}
+	return cfg
+}
+
+// OllamaModelNames extracts display-formatted model names from an OllamaStatus.
+func OllamaModelNames(status *provider.OllamaStatus) []string {
+	if status == nil || !status.Available {
+		return nil
+	}
+	names := make([]string, len(status.Models))
+	for i, m := range status.Models {
+		names[i] = provider.FormatModelName(m.Name)
+	}
+	return names
+}
+
+// BuildSettingsFromFieldsWithProvider is the updated version of
+// BuildSettingsFromFields that also includes the provider config.
+// The existing BuildSettingsFromFields should call this internally
+// or be replaced by it. The ClaudeModel field on Settings is set
+// to match provider.Model for backward compatibility.
+func BuildSettingsFromFieldsWithProvider(
+	fields []InputField,
+	mcpServers []MCPServer,
+	maxTurns MaxTurnsConfig,
+	providerCfg provider.Config,
+) *state.Settings {
+	settings := BuildSettingsFromFields(fields, mcpServers, maxTurns)
+	settings.Provider = providerCfg
+	settings.ClaudeModel = providerCfg.Model // keep in sync
+	return settings
 }
 
 // InferTestCommand guesses the test command from the project snapshot.

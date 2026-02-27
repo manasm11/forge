@@ -3,6 +3,7 @@ package tui
 import (
 	"testing"
 
+	"github.com/manasm11/forge/internal/provider"
 	"github.com/manasm11/forge/internal/state"
 )
 
@@ -388,5 +389,171 @@ func TestDefaultMaxTurns(t *testing.T) {
 	}
 	if mt.Large <= mt.Medium {
 		t.Errorf("Large = %d, should be greater than Medium", mt.Large)
+	}
+}
+
+// ============================================================
+// Provider detection + field integration
+// ============================================================
+
+func TestDefaultProviderConfig_NoOllama(t *testing.T) {
+	t.Parallel()
+	// When Ollama is not detected, default to Anthropic
+	cfg := DefaultProviderConfig(nil)
+
+	if cfg.Type != provider.ProviderAnthropic {
+		t.Errorf("Type = %q, want anthropic", cfg.Type)
+	}
+	if cfg.Model != "sonnet" {
+		t.Errorf("Model = %q, want sonnet", cfg.Model)
+	}
+}
+
+func TestDefaultProviderConfig_WithOllama(t *testing.T) {
+	t.Parallel()
+	// Even when Ollama is detected, default is still Anthropic
+	// (user must explicitly opt in)
+	status := &provider.OllamaStatus{
+		Available: true,
+		URL:       "http://localhost:11434",
+		Models: []provider.OllamaModel{
+			{Name: "qwen3-coder:latest"},
+		},
+	}
+	cfg := DefaultProviderConfig(status)
+
+	if cfg.Type != provider.ProviderAnthropic {
+		t.Errorf("should still default to Anthropic, got %q", cfg.Type)
+	}
+}
+
+func TestBuildProviderConfigFromFields_Anthropic(t *testing.T) {
+	t.Parallel()
+	fields := map[string]string{
+		"provider_type": "anthropic",
+		"claude_model":  "opus",
+		"ollama_url":    "",
+	}
+	cfg := BuildProviderConfigFromFields(fields)
+
+	if cfg.Type != provider.ProviderAnthropic {
+		t.Errorf("Type = %q", cfg.Type)
+	}
+	if cfg.Model != "opus" {
+		t.Errorf("Model = %q", cfg.Model)
+	}
+	if cfg.OllamaURL != "" {
+		t.Errorf("OllamaURL should be empty for Anthropic, got %q", cfg.OllamaURL)
+	}
+}
+
+func TestBuildProviderConfigFromFields_Ollama(t *testing.T) {
+	t.Parallel()
+	fields := map[string]string{
+		"provider_type": "ollama",
+		"claude_model":  "qwen3-coder",
+		"ollama_url":    "http://myserver:11434",
+	}
+	cfg := BuildProviderConfigFromFields(fields)
+
+	if cfg.Type != provider.ProviderOllama {
+		t.Errorf("Type = %q", cfg.Type)
+	}
+	if cfg.Model != "qwen3-coder" {
+		t.Errorf("Model = %q", cfg.Model)
+	}
+	if cfg.OllamaURL != "http://myserver:11434" {
+		t.Errorf("OllamaURL = %q", cfg.OllamaURL)
+	}
+}
+
+func TestBuildProviderConfigFromFields_Ollama_EmptyURL(t *testing.T) {
+	t.Parallel()
+	fields := map[string]string{
+		"provider_type": "ollama",
+		"claude_model":  "qwen3-coder",
+		"ollama_url":    "",
+	}
+	cfg := BuildProviderConfigFromFields(fields)
+
+	if cfg.OllamaURL != provider.DefaultOllamaURL() {
+		t.Errorf("should default to %q, got %q", provider.DefaultOllamaURL(), cfg.OllamaURL)
+	}
+}
+
+func TestOllamaModelNames_FromStatus(t *testing.T) {
+	t.Parallel()
+	status := &provider.OllamaStatus{
+		Available: true,
+		Models: []provider.OllamaModel{
+			{Name: "qwen3-coder:latest"},
+			{Name: "glm-4.7-flash:latest"},
+			{Name: "gpt-oss:20b"},
+		},
+	}
+
+	names := OllamaModelNames(status)
+
+	if len(names) != 3 {
+		t.Fatalf("count = %d, want 3", len(names))
+	}
+	// Should be display-formatted (no ":latest")
+	if names[0] != "qwen3-coder" {
+		t.Errorf("names[0] = %q", names[0])
+	}
+	if names[2] != "gpt-oss:20b" {
+		t.Errorf("names[2] = %q, tag should be preserved", names[2])
+	}
+}
+
+func TestOllamaModelNames_NilStatus(t *testing.T) {
+	t.Parallel()
+	names := OllamaModelNames(nil)
+	if len(names) != 0 {
+		t.Errorf("should be empty for nil, got %v", names)
+	}
+}
+
+func TestOllamaModelNames_NotAvailable(t *testing.T) {
+	t.Parallel()
+	status := &provider.OllamaStatus{Available: false}
+	names := OllamaModelNames(status)
+	if len(names) != 0 {
+		t.Errorf("should be empty for unavailable, got %v", names)
+	}
+}
+
+// ============================================================
+// Settings round-trip with provider config
+// ============================================================
+
+func TestBuildSettingsFromFields_IncludesProvider(t *testing.T) {
+	t.Parallel()
+	// Existing test from M7, extended to verify provider config persists
+	fields := []InputField{
+		{Key: "test_command", Value: "go test ./..."},
+		{Key: "build_command", Value: "go build ./..."},
+		{Key: "branch_pattern", Value: "forge/task-{id}"},
+		{Key: "max_retries", Value: "3"},
+		{Key: "auto_pr", Value: "true"},
+		{Key: "claude_model", Value: "qwen3-coder"},
+	}
+
+	providerCfg := provider.Config{
+		Type:      provider.ProviderOllama,
+		Model:     "qwen3-coder",
+		OllamaURL: "http://localhost:11434",
+	}
+
+	settings := BuildSettingsFromFieldsWithProvider(fields, nil, DefaultMaxTurns(), providerCfg)
+
+	if settings.Provider.Type != provider.ProviderOllama {
+		t.Errorf("Provider.Type = %q", settings.Provider.Type)
+	}
+	if settings.Provider.Model != "qwen3-coder" {
+		t.Errorf("Provider.Model = %q", settings.Provider.Model)
+	}
+	if settings.ClaudeModel != "qwen3-coder" {
+		t.Errorf("ClaudeModel = %q, should match provider model", settings.ClaudeModel)
 	}
 }
