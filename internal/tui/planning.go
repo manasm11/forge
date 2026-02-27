@@ -44,14 +44,8 @@ func NewPlanningModel(s *state.State, root string, claudeClient claude.Claude, p
 	chat := components.NewChatModel(sender, handler)
 
 	if isReplanning {
-		completed := len(s.CompletedTasks())
-		pending := len(s.PendingTasks())
-		chat.AddMessage(components.RoleSystem, fmt.Sprintf(
-			"Welcome back to planning! \u2692\n\n"+
-				"You have %d completed tasks, %d pending tasks.\n"+
-				"Tell me what changes you'd like to make to the plan.\n\n"+
-				"Commands: /done \u00b7 /summary \u00b7 /restart",
-			completed, pending))
+		replanCtx := BuildReplanContext(s)
+		chat.AddMessage(components.RoleSystem, BuildReplanSystemMessage(replanCtx))
 
 		// Restore previous conversation history
 		for _, msg := range s.ConversationHistory {
@@ -157,6 +151,17 @@ func (m PlanningModel) Update(msg tea.Msg) (PlanningModel, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 		if update != nil {
+			// Validate before applying
+			warnings, valErr := ValidatePlanUpdate(m.state, update)
+			if valErr != nil {
+				m.chat.AddMessage(components.RoleSystem, fmt.Sprintf(
+					"The plan update had an issue: %v\nCould you revise the update? Remember, completed tasks must stay as-is.", valErr))
+				return m, tea.Batch(cmds...)
+			}
+			// Show warnings but proceed
+			for _, w := range warnings {
+				m.chat.AddMessage(components.RoleSystem, fmt.Sprintf("Note: %s", w))
+			}
 			if err := ApplyPlanUpdate(m.state, update); err != nil {
 				m.chat.AddMessage(components.RoleSystem, fmt.Sprintf("Error applying plan update: %v", err))
 				return m, tea.Batch(cmds...)
@@ -176,11 +181,10 @@ func (m PlanningModel) Update(msg tea.Msg) (PlanningModel, tea.Cmd) {
 		m.firstMessageSent = false
 		m.restartConfirmed = false
 		if m.isReplanning {
-			completed := len(m.state.CompletedTasks())
-			pending := len(m.state.PendingTasks())
+			replanCtx := BuildReplanContext(m.state)
 			m.chat.AddMessage(components.RoleSystem, fmt.Sprintf(
 				"Conversation restarted. You have %d completed, %d pending tasks.\nDescribe what changes you'd like.",
-				completed, pending))
+				replanCtx.CompletedCount, replanCtx.PendingCount))
 		} else {
 			m.state.ConversationHistory = nil
 			m.chat.AddMessage(components.RoleSystem,
@@ -268,7 +272,8 @@ func (m *PlanningModel) buildFirstPrompt(userMessage string) string {
 	var prompt strings.Builder
 
 	if m.isReplanning {
-		fmt.Fprintf(&prompt, claude.ReplanningPrompt, m.state.GenerateReplanContext())
+		replanCtx := BuildReplanContext(m.state)
+		prompt.WriteString(BuildReplanPrompt(replanCtx))
 	} else {
 		prompt.WriteString(claude.InitialPlanningPrompt)
 

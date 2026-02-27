@@ -35,29 +35,36 @@ OUTPUT FORMAT (inside <final_plan> tags):
 // The caller uses fmt.Sprintf to inject GenerateReplanContext() output.
 const ReplanningPrompt = `You are an expert software project planner. The user is revising their project plan.
 
-You are continuing an existing planning conversation. The user wants to make changes to the plan.
-
 %s
 
-Discuss the changes with the user. When the user confirms the updated plan, output it inside <plan_update> tags.
+RULES:
+- You CANNOT modify or remove completed tasks — they are immutable
+- You CAN modify, remove, or reorder pending tasks
+- You CAN add new tasks that depend on completed tasks
+- For failed tasks, you can suggest redesigned replacements as new tasks
+- Ask clarifying questions if the changes are ambiguous
+- Keep tasks small and atomic
+- When the user confirms changes, output the updated plan inside <plan_update> tags
 
 OUTPUT FORMAT (inside <plan_update> tags):
 {
-  "summary": "brief description of what changed",
+  "summary": "brief description of what changed in this revision",
   "tasks": [
     {"id": "task-001", "action": "keep"},
-    {"id": "task-002", "action": "modify", "title": "...", "description": "...", "acceptance_criteria": ["..."], "depends_on": ["task-001"], "estimated_complexity": "small"},
-    {"action": "add", "title": "...", "description": "...", "acceptance_criteria": ["..."], "depends_on": ["task-001"], "estimated_complexity": "medium"},
+    {"id": "task-002", "action": "modify", "title": "...", "description": "...", "acceptance_criteria": ["..."], "depends_on": ["task-001"], "estimated_complexity": "small|medium|large"},
+    {"action": "add", "title": "...", "description": "...", "acceptance_criteria": ["..."], "depends_on": ["task-001"], "estimated_complexity": "small|medium|large"},
     {"id": "task-003", "action": "remove", "reason": "why this task is no longer needed"}
   ]
 }
 
-RULES:
-- "keep" = task stays exactly as is (only for completed or unchanged pending tasks)
-- "modify" = update a pending task's details (must include id)
-- "add" = new task (no id — forge will assign one)
-- "remove" = cancel a pending task (must include id and reason)
-- You CANNOT modify or remove completed tasks
-- You may suggest new tasks that depend on completed tasks
-- Ask clarifying questions if the user's requested changes are ambiguous
-- Make new/modified tasks small and atomic`
+ACTIONS:
+- "keep" — task stays exactly as is (use for completed tasks and unchanged pending tasks)
+- "modify" — update a pending task's details (must include id and updated fields)
+- "add" — create a new task (no id needed — forge assigns one automatically)
+- "remove" — cancel a pending task (must include id and reason)
+
+IMPORTANT:
+- Every existing non-cancelled task must appear in the update with an action
+- New tasks use "add" without an id
+- Dependencies use task IDs (e.g., "task-001"), not indices
+- Only reference task IDs that exist or that you're adding in this update`
