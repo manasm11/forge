@@ -7,6 +7,7 @@ import (
 )
 
 func TestParseSlashCommand(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		input   string
@@ -80,6 +81,7 @@ func TestParseSlashCommand(t *testing.T) {
 }
 
 func TestNewChatModel(t *testing.T) {
+	t.Parallel()
 	sender := func(text string) tea.Cmd { return nil }
 	handler := func(cmd SlashCommand) (tea.Cmd, bool) { return nil, false }
 
@@ -97,6 +99,7 @@ func TestNewChatModel(t *testing.T) {
 }
 
 func TestAddMessage(t *testing.T) {
+	t.Parallel()
 	sender := func(text string) tea.Cmd { return nil }
 	m := NewChatModel(sender, nil)
 	m.SetSize(80, 24)
@@ -121,6 +124,7 @@ func TestAddMessage(t *testing.T) {
 }
 
 func TestMessagesReturnsCopy(t *testing.T) {
+	t.Parallel()
 	sender := func(text string) tea.Cmd { return nil }
 	m := NewChatModel(sender, nil)
 	m.SetSize(80, 24)
@@ -138,6 +142,7 @@ func TestMessagesReturnsCopy(t *testing.T) {
 }
 
 func TestIsWaiting(t *testing.T) {
+	t.Parallel()
 	sender := func(text string) tea.Cmd { return nil }
 	m := NewChatModel(sender, nil)
 
@@ -147,6 +152,7 @@ func TestIsWaiting(t *testing.T) {
 }
 
 func TestClearMessages(t *testing.T) {
+	t.Parallel()
 	sender := func(text string) tea.Cmd { return nil }
 	m := NewChatModel(sender, nil)
 	m.SetSize(80, 24)
@@ -162,6 +168,7 @@ func TestClearMessages(t *testing.T) {
 }
 
 func TestSetSize(t *testing.T) {
+	t.Parallel()
 	sender := func(text string) tea.Cmd { return nil }
 	m := NewChatModel(sender, nil)
 

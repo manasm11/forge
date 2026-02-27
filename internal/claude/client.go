@@ -22,6 +22,18 @@ type Response struct {
 // It's called from a goroutine — implementations must be goroutine-safe.
 type StreamCallback func(chunk string)
 
+// Claude defines the interface for interacting with Claude Code CLI.
+// Production code uses Client. Tests use MockClaude.
+type Claude interface {
+	Send(ctx context.Context, prompt string) (*Response, error)
+	Continue(ctx context.Context, message string) (*Response, error)
+	SendStreaming(ctx context.Context, prompt string, onChunk StreamCallback) (*Response, error)
+	ContinueStreaming(ctx context.Context, message string, onChunk StreamCallback) (*Response, error)
+}
+
+// Verify Client implements Claude at compile time.
+var _ Claude = (*Client)(nil)
+
 // Client wraps the claude CLI.
 type Client struct {
 	claudePath string

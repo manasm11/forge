@@ -9,6 +9,7 @@ import (
 )
 
 func TestScanStructure(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// Create a known file structure
@@ -79,6 +80,7 @@ func TestScanStructure(t *testing.T) {
 }
 
 func TestScanStructureSkipsDirs(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// Create a node_modules dir (should be skipped)
@@ -105,6 +107,7 @@ func TestScanStructureSkipsDirs(t *testing.T) {
 }
 
 func TestDetectLanguageGo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	gomod := `module example.com/test
@@ -143,6 +146,7 @@ require (
 }
 
 func TestDetectLanguageJS(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	packageJSON := `{
@@ -174,6 +178,7 @@ func TestDetectLanguageJS(t *testing.T) {
 }
 
 func TestDetectLanguageTS(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"test"}`), 0644); err != nil {
@@ -191,6 +196,7 @@ func TestDetectLanguageTS(t *testing.T) {
 }
 
 func TestDetectLanguageEmpty(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	lang, frameworks, deps := detectLanguage(root)
@@ -207,6 +213,7 @@ func TestDetectLanguageEmpty(t *testing.T) {
 }
 
 func TestDetectLanguagePython(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	requirements := `django>=4.0
@@ -247,6 +254,7 @@ numpy>=1.21
 }
 
 func TestDetectLanguageRust(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	cargoToml := `[package]
@@ -284,6 +292,7 @@ tokio = { version = "1", features = ["full"] }
 }
 
 func TestScanGitNonRepo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	branch, dirty, commits := scanGit(root)
@@ -370,6 +379,7 @@ func TestScanGitRepo(t *testing.T) {
 }
 
 func TestScanFullIntegration(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// Create a minimal Go project
@@ -403,6 +413,7 @@ func TestScanFullIntegration(t *testing.T) {
 }
 
 func TestScanEmptyDir(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	snap := Scan(root)
@@ -413,6 +424,7 @@ func TestScanEmptyDir(t *testing.T) {
 }
 
 func TestScanDirWithOnlyForge(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// Only .forge/ and .git/ directories
@@ -431,6 +443,7 @@ func TestScanDirWithOnlyForge(t *testing.T) {
 }
 
 func TestGitHubActionsDetection(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	// Create GitHub Actions workflow
@@ -457,5 +470,225 @@ func TestGitHubActionsDetection(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("keyFiles should contain 'GitHub Actions CI found', got %v", keyFiles)
+	}
+}
+
+func TestScan_GoProjectWithFrameworks(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	writeTestFile(t, dir, "go.mod", `module example.com/test
+
+go 1.21
+
+require (
+	github.com/gin-gonic/gin v1.9.1
+	gorm.io/gorm v1.25.0
+)`)
+	writeTestFile(t, dir, "main.go", `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("hello")
+}`)
+	writeTestFile(t, dir, "README.md", "# Test Project\n\nThis is a test.")
+	os.MkdirAll(filepath.Join(dir, "internal", "handlers"), 0755)
+	writeTestFile(t, dir, "internal/handlers/user.go", `package handlers`)
+
+	snap := Scan(dir)
+
+	if !snap.IsExisting {
+		t.Error("should detect existing project")
+	}
+	if snap.Language != "Go" {
+		t.Errorf("Language = %q, want Go", snap.Language)
+	}
+	if !containsStr(snap.Frameworks, "gin") {
+		t.Errorf("Frameworks = %v, should contain gin", snap.Frameworks)
+	}
+	if snap.FileCount < 3 {
+		t.Errorf("FileCount = %d, want >= 3", snap.FileCount)
+	}
+	if snap.ReadmeContent == "" {
+		t.Error("ReadmeContent should not be empty")
+	}
+	if !strings.Contains(snap.Structure, "internal") {
+		t.Error("Structure should contain 'internal' directory")
+	}
+}
+
+func TestScan_NodeProject(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	writeTestFile(t, dir, "package.json", `{
+  "name": "test-app",
+  "dependencies": {
+    "react": "^18.0.0",
+    "next": "^14.0.0",
+    "axios": "^1.0.0"
+  }
+}`)
+	writeTestFile(t, dir, "tsconfig.json", `{"compilerOptions": {}}`)
+	os.MkdirAll(filepath.Join(dir, "src"), 0755)
+	writeTestFile(t, dir, "src/index.tsx", `export default function App() {}`)
+
+	snap := Scan(dir)
+
+	if !snap.IsExisting {
+		t.Error("should detect existing project")
+	}
+	if snap.Language != "TypeScript" {
+		t.Errorf("Language = %q, want TypeScript", snap.Language)
+	}
+	if !containsStr(snap.Frameworks, "next") || !containsStr(snap.Frameworks, "react") {
+		t.Errorf("Frameworks = %v, should contain next and react", snap.Frameworks)
+	}
+}
+
+func TestScan_PythonProject(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	writeTestFile(t, dir, "requirements.txt", "django==4.2\ncelery==5.3\nredis==5.0\n")
+	writeTestFile(t, dir, "manage.py", `#!/usr/bin/env python`)
+
+	snap := Scan(dir)
+
+	if snap.Language != "Python" {
+		t.Errorf("Language = %q, want Python", snap.Language)
+	}
+	if !containsStr(snap.Frameworks, "django") {
+		t.Errorf("Frameworks = %v, should contain django", snap.Frameworks)
+	}
+}
+
+func TestScan_WithClaudeMD(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	writeTestFile(t, dir, "main.go", "package main")
+	writeTestFile(t, dir, "go.mod", "module test")
+	claudeContent := "# Project Guidelines\n\nUse Go conventions."
+	writeTestFile(t, dir, "CLAUDE.md", claudeContent)
+
+	snap := Scan(dir)
+
+	if snap.ClaudeMD != claudeContent {
+		t.Errorf("ClaudeMD = %q, want %q", snap.ClaudeMD, claudeContent)
+	}
+}
+
+func TestScan_SkipsIgnoredDirectories(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	writeTestFile(t, dir, "main.go", "package main")
+	writeTestFile(t, dir, "go.mod", "module test")
+	os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0755)
+	writeTestFile(t, dir, "node_modules/pkg/index.js", "module.exports = {}")
+	os.MkdirAll(filepath.Join(dir, ".git", "objects"), 0755)
+	writeTestFile(t, dir, ".git/objects/test", "binary")
+	os.MkdirAll(filepath.Join(dir, "vendor", "lib"), 0755)
+	writeTestFile(t, dir, "vendor/lib/dep.go", "package lib")
+
+	snap := Scan(dir)
+
+	if strings.Contains(snap.Structure, "node_modules") {
+		t.Error("Structure should not contain node_modules")
+	}
+	if strings.Contains(snap.Structure, ".git") {
+		t.Error("Structure should not contain .git")
+	}
+}
+
+func TestScanGit_WithCommits(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+
+	runTestGit(t, dir, "init")
+	runTestGit(t, dir, "config", "user.email", "test@test.com")
+	runTestGit(t, dir, "config", "user.name", "Test")
+
+	writeTestFile(t, dir, "file.txt", "hello")
+	runTestGit(t, dir, "add", ".")
+	runTestGit(t, dir, "commit", "-m", "initial commit")
+
+	writeTestFile(t, dir, "file2.txt", "world")
+	runTestGit(t, dir, "add", ".")
+	runTestGit(t, dir, "commit", "-m", "add file2")
+
+	branch, dirty, commits := scanGit(dir)
+
+	if branch == "" {
+		t.Error("branch should not be empty")
+	}
+	if dirty {
+		t.Error("should not be dirty after commit")
+	}
+	if len(commits) != 2 {
+		t.Errorf("commits count = %d, want 2", len(commits))
+	}
+}
+
+func TestScanGit_DirtyWorktree(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+
+	runTestGit(t, dir, "init")
+	runTestGit(t, dir, "config", "user.email", "test@test.com")
+	runTestGit(t, dir, "config", "user.name", "Test")
+
+	writeTestFile(t, dir, "file.txt", "hello")
+	runTestGit(t, dir, "add", ".")
+	runTestGit(t, dir, "commit", "-m", "initial")
+
+	// Make dirty
+	writeTestFile(t, dir, "uncommitted.txt", "dirty")
+
+	_, dirty, _ := scanGit(dir)
+
+	if !dirty {
+		t.Error("should be dirty with uncommitted files")
+	}
+}
+
+// Helper functions
+
+func writeTestFile(t *testing.T, dir, path, content string) {
+	t.Helper()
+	full := filepath.Join(dir, path)
+	os.MkdirAll(filepath.Dir(full), 0755)
+	if err := os.WriteFile(full, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write %s: %v", path, err)
+	}
+}
+
+func containsStr(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+func runTestGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
 }

@@ -92,12 +92,14 @@ func main() {
 	}
 
 	// 5. Create Claude client (sonnet model for planning, --max-turns 1 default)
-	claudeClient, err := claude.NewClient("claude", 5*time.Minute, "sonnet")
-	if err != nil {
+	var claudeClient claude.Claude
+	if c, err := claude.NewClient("claude", 5*time.Minute, "sonnet"); err != nil {
 		// Don't exit — let the TUI start and show error when user tries to chat
 		fmt.Printf("  Warning: %v\n", err)
 		fmt.Println("  Planning will not work until Claude CLI is available.")
 		fmt.Println()
+	} else {
+		claudeClient = c
 	}
 
 	// 6. Create app model with state and claude client

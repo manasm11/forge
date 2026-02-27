@@ -5,6 +5,7 @@ import (
 )
 
 func TestParseStreamChunk(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -60,9 +61,35 @@ func TestParseStreamChunk(t *testing.T) {
 			input: `{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"abc"}}`,
 			want:  "",
 		},
+		{
+			name:  "json with unknown type",
+			input: `{"type":"heartbeat","timestamp":12345}`,
+			want:  "",
+		},
+		{
+			name:  "nested content array with multiple blocks",
+			input: `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"bash"},{"type":"text","text":"Here is the result"}]}}`,
+			want:  "Here is the result",
+		},
+		{
+			name:  "message_stop returns empty",
+			input: `{"type":"message_stop"}`,
+			want:  "",
+		},
+		{
+			name:  "content_block_stop returns empty",
+			input: `{"type":"content_block_stop"}`,
+			want:  "",
+		},
+		{
+			name:  "message_delta returns empty",
+			input: `{"type":"message_delta","delta":{"stop_reason":"end_turn"}}`,
+			want:  "",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := parseStreamChunk(tt.input)
 			if got != tt.want {
 				t.Errorf("parseStreamChunk(%q) = %q, want %q", tt.input, got, tt.want)
@@ -72,6 +99,7 @@ func TestParseStreamChunk(t *testing.T) {
 }
 
 func TestExtractTagContent(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		text      string
@@ -87,8 +115,8 @@ func TestExtractTagContent(t *testing.T) {
 			wantFound: true,
 		},
 		{
-			name: "multiline content",
-			text: "<final_plan>\n{\n  \"key\": \"val\"\n}\n</final_plan>",
+			name:      "multiline content",
+			text:      "<final_plan>\n{\n  \"key\": \"val\"\n}\n</final_plan>",
 			tag:       "final_plan",
 			wantText:  "{\n  \"key\": \"val\"\n}",
 			wantFound: true,
@@ -106,6 +134,12 @@ func TestExtractTagContent(t *testing.T) {
 			wantFound: false,
 		},
 		{
+			name:      "closing tag only",
+			text:      `Text with </final_plan> but no opening`,
+			tag:       "final_plan",
+			wantFound: false,
+		},
+		{
 			name:      "extra content around tags",
 			text:      `Here's the plan:\n<final_plan>{"key": "val"}</final_plan>\nLet me know!`,
 			tag:       "final_plan",
@@ -115,6 +149,13 @@ func TestExtractTagContent(t *testing.T) {
 		{
 			name:      "empty content between tags",
 			text:      `<final_plan></final_plan>`,
+			tag:       "final_plan",
+			wantText:  "",
+			wantFound: true,
+		},
+		{
+			name:      "whitespace content trimmed",
+			text:      "<final_plan>  \n  </final_plan>",
 			tag:       "final_plan",
 			wantText:  "",
 			wantFound: true,
@@ -143,6 +184,7 @@ func TestExtractTagContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, found := extractTagContent(tt.text, tt.tag)
 			if found != tt.wantFound {
 				t.Errorf("found = %v, want %v", found, tt.wantFound)
@@ -155,7 +197,9 @@ func TestExtractTagContent(t *testing.T) {
 }
 
 func TestExtractFinalPlan(t *testing.T) {
+	t.Parallel()
 	t.Run("valid plan with all fields", func(t *testing.T) {
+		t.Parallel()
 		text := `<final_plan>
 {
   "project_name": "my-api",
@@ -214,6 +258,7 @@ func TestExtractFinalPlan(t *testing.T) {
 	})
 
 	t.Run("minimal valid plan", func(t *testing.T) {
+		t.Parallel()
 		text := `<final_plan>
 {
   "project_name": "test",
@@ -241,6 +286,7 @@ func TestExtractFinalPlan(t *testing.T) {
 	})
 
 	t.Run("no tags — returns nil nil", func(t *testing.T) {
+		t.Parallel()
 		text := "Just some text without any plan tags."
 		plan, err := ExtractFinalPlan(text)
 		if err != nil {
@@ -252,6 +298,7 @@ func TestExtractFinalPlan(t *testing.T) {
 	})
 
 	t.Run("tags with invalid JSON", func(t *testing.T) {
+		t.Parallel()
 		text := `<final_plan>not valid json{{{</final_plan>`
 		plan, err := ExtractFinalPlan(text)
 		if err == nil {
@@ -263,6 +310,7 @@ func TestExtractFinalPlan(t *testing.T) {
 	})
 
 	t.Run("missing project_name", func(t *testing.T) {
+		t.Parallel()
 		text := `<final_plan>
 {
   "tasks": [{"title": "t", "description": "d", "acceptance_criteria": ["a"], "estimated_complexity": "small"}]
@@ -278,6 +326,7 @@ func TestExtractFinalPlan(t *testing.T) {
 	})
 
 	t.Run("missing tasks", func(t *testing.T) {
+		t.Parallel()
 		text := `<final_plan>{"project_name": "test", "tasks": []}</final_plan>`
 		plan, err := ExtractFinalPlan(text)
 		if err == nil {
@@ -289,6 +338,7 @@ func TestExtractFinalPlan(t *testing.T) {
 	})
 
 	t.Run("plan embedded in conversational text", func(t *testing.T) {
+		t.Parallel()
 		text := `Great, here's the plan:
 
 <final_plan>
@@ -326,7 +376,9 @@ Let me know if you'd like any changes!`
 }
 
 func TestExtractPlanUpdate(t *testing.T) {
+	t.Parallel()
 	t.Run("valid update with mixed actions", func(t *testing.T) {
+		t.Parallel()
 		text := `<plan_update>
 {
   "summary": "Added caching, removed GraphQL",
@@ -390,6 +442,7 @@ func TestExtractPlanUpdate(t *testing.T) {
 	})
 
 	t.Run("no tags — returns nil nil", func(t *testing.T) {
+		t.Parallel()
 		text := "No plan update here."
 		update, err := ExtractPlanUpdate(text)
 		if err != nil {
@@ -401,6 +454,7 @@ func TestExtractPlanUpdate(t *testing.T) {
 	})
 
 	t.Run("tags with invalid JSON", func(t *testing.T) {
+		t.Parallel()
 		text := `<plan_update>{broken json</plan_update>`
 		update, err := ExtractPlanUpdate(text)
 		if err == nil {
@@ -412,6 +466,7 @@ func TestExtractPlanUpdate(t *testing.T) {
 	})
 
 	t.Run("task missing action field", func(t *testing.T) {
+		t.Parallel()
 		text := `<plan_update>
 {
   "summary": "test",
@@ -430,6 +485,7 @@ func TestExtractPlanUpdate(t *testing.T) {
 	})
 
 	t.Run("update with dependencies", func(t *testing.T) {
+		t.Parallel()
 		text := `<plan_update>
 {
   "summary": "Added dependency",
@@ -449,7 +505,9 @@ func TestExtractPlanUpdate(t *testing.T) {
 }
 
 func TestParseResponse(t *testing.T) {
+	t.Parallel()
 	t.Run("valid JSON with result field", func(t *testing.T) {
+		t.Parallel()
 		raw := []byte(`{"result": "Hello, world!", "session_id": "abc-123"}`)
 		resp, err := parseResponse(raw)
 		if err != nil {
@@ -467,6 +525,7 @@ func TestParseResponse(t *testing.T) {
 	})
 
 	t.Run("valid JSON with text field", func(t *testing.T) {
+		t.Parallel()
 		raw := []byte(`{"text": "response text"}`)
 		resp, err := parseResponse(raw)
 		if err != nil {
@@ -478,6 +537,7 @@ func TestParseResponse(t *testing.T) {
 	})
 
 	t.Run("valid JSON without known text fields", func(t *testing.T) {
+		t.Parallel()
 		raw := []byte(`{"data": "something"}`)
 		resp, err := parseResponse(raw)
 		if err != nil {
@@ -490,6 +550,7 @@ func TestParseResponse(t *testing.T) {
 	})
 
 	t.Run("valid JSON with session_id", func(t *testing.T) {
+		t.Parallel()
 		raw := []byte(`{"result": "hi", "session_id": "sess-456"}`)
 		resp, err := parseResponse(raw)
 		if err != nil {
@@ -501,6 +562,7 @@ func TestParseResponse(t *testing.T) {
 	})
 
 	t.Run("non-JSON output — plain text fallback", func(t *testing.T) {
+		t.Parallel()
 		raw := []byte("This is just plain text output from claude")
 		resp, err := parseResponse(raw)
 		if err != nil {
@@ -515,6 +577,7 @@ func TestParseResponse(t *testing.T) {
 	})
 
 	t.Run("empty input", func(t *testing.T) {
+		t.Parallel()
 		resp, err := parseResponse([]byte{})
 		if err != nil {
 			t.Fatalf("parseResponse() error: %v", err)
@@ -525,6 +588,7 @@ func TestParseResponse(t *testing.T) {
 	})
 
 	t.Run("result field prefers over text field", func(t *testing.T) {
+		t.Parallel()
 		raw := []byte(`{"result": "from result", "text": "from text"}`)
 		resp, err := parseResponse(raw)
 		if err != nil {

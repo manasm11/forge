@@ -16,7 +16,7 @@ type PlanningModel struct {
 	chat             components.ChatModel
 	state            *state.State
 	stateRoot        string
-	claude           *claude.Client
+	claude           claude.Claude // interface, not concrete type
 	program          *tea.Program
 	isReplanning     bool
 	firstMessageSent bool
@@ -28,7 +28,7 @@ type PlanningModel struct {
 type restartMsg struct{}
 
 // NewPlanningModel creates a new planning phase model.
-func NewPlanningModel(s *state.State, root string, claudeClient *claude.Client, p *tea.Program) PlanningModel {
+func NewPlanningModel(s *state.State, root string, claudeClient claude.Claude, p *tea.Program) PlanningModel {
 	isReplanning := s.PlanVersion > 0 || len(s.Tasks) > 0
 
 	m := PlanningModel{
@@ -157,7 +157,7 @@ func (m PlanningModel) Update(msg tea.Msg) (PlanningModel, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 		if update != nil {
-			if err := applyPlanUpdate(m.state, update); err != nil {
+			if err := ApplyPlanUpdate(m.state, update); err != nil {
 				m.chat.AddMessage(components.RoleSystem, fmt.Sprintf("Error applying plan update: %v", err))
 				return m, tea.Batch(cmds...)
 			}
@@ -395,89 +395,10 @@ func (m *PlanningModel) handleRestart() tea.Cmd {
 	return func() tea.Msg { return restartMsg{} }
 }
 
-// applyFinalPlan converts a PlanJSON into state tasks.
+// applyFinalPlan converts a PlanJSON into state tasks using the exported function.
 func (m *PlanningModel) applyFinalPlan(plan *claude.PlanJSON) {
-	m.state.ProjectName = plan.ProjectName
-
-	// Build a mapping from task index to task ID for dependency resolution
-	taskIDs := make([]string, len(plan.Tasks))
-	for i := range plan.Tasks {
-		taskIDs[i] = m.state.NextTaskID()
-		// Reserve the ID by adding the task immediately
-		pt := plan.Tasks[i]
-		var deps []string
-		for _, depIdx := range pt.DependsOn {
-			if depIdx >= 0 && depIdx < len(taskIDs) {
-				deps = append(deps, taskIDs[depIdx])
-			}
-		}
-		m.state.AddTask(pt.Title, pt.Description, pt.Complexity, pt.AcceptanceCriteria, deps)
-	}
-
-	m.state.BumpPlanVersion("Initial plan")
+	_ = ApplyInitialPlan(m.state, plan)
 	_ = state.Save(m.stateRoot, m.state)
-}
-
-// applyPlanUpdate processes a PlanUpdateJSON and modifies state.Tasks accordingly.
-func applyPlanUpdate(s *state.State, update *claude.PlanUpdateJSON) error {
-	for _, t := range update.Tasks {
-		switch t.Action {
-		case "keep":
-			// do nothing
-
-		case "modify":
-			task := s.FindTask(t.ID)
-			if task == nil {
-				return fmt.Errorf("modify: task %q not found", t.ID)
-			}
-			if task.Status == state.TaskDone {
-				return fmt.Errorf("modify: cannot modify completed task %q", t.ID)
-			}
-			if t.Title != "" {
-				task.Title = t.Title
-			}
-			if t.Description != "" {
-				task.Description = t.Description
-			}
-			if len(t.AcceptanceCriteria) > 0 {
-				task.AcceptanceCriteria = t.AcceptanceCriteria
-			}
-			if len(t.DependsOn) > 0 {
-				task.DependsOn = t.DependsOn
-			}
-			if t.Complexity != "" {
-				task.Complexity = t.Complexity
-			}
-			task.PlanVersionModified = s.PlanVersion + 1
-
-		case "add":
-			s.AddTask(t.Title, t.Description, t.Complexity, t.AcceptanceCriteria, t.DependsOn)
-
-		case "remove":
-			if t.ID == "" {
-				return fmt.Errorf("remove: missing task ID")
-			}
-			task := s.FindTask(t.ID)
-			if task == nil {
-				return fmt.Errorf("remove: task %q not found", t.ID)
-			}
-			if task.Status == state.TaskDone {
-				return fmt.Errorf("remove: cannot remove completed task %q", t.ID)
-			}
-			reason := t.Reason
-			if reason == "" {
-				reason = "Removed during replanning"
-			}
-			if err := s.CancelTask(t.ID, reason); err != nil {
-				return fmt.Errorf("remove: %w", err)
-			}
-
-		default:
-			return fmt.Errorf("unknown action %q for task %q", t.Action, t.ID)
-		}
-	}
-
-	return nil
 }
 
 // formatLOC formats a line count for display (e.g., 3200 -> "3,200").

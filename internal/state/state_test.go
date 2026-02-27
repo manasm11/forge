@@ -10,6 +10,7 @@ import (
 )
 
 func TestForgeDir(t *testing.T) {
+	t.Parallel()
 	got := ForgeDir("/some/root")
 	want := filepath.Join("/some/root", ".forge")
 	if got != want {
@@ -18,7 +19,9 @@ func TestForgeDir(t *testing.T) {
 }
 
 func TestInit(t *testing.T) {
+	t.Parallel()
 	t.Run("creates state with correct defaults", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 
 		s, err := Init(root)
@@ -47,6 +50,7 @@ func TestInit(t *testing.T) {
 	})
 
 	t.Run("fails if state already exists", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 
 		if _, err := Init(root); err != nil {
@@ -61,7 +65,9 @@ func TestInit(t *testing.T) {
 }
 
 func TestLoad(t *testing.T) {
+	t.Parallel()
 	t.Run("returns nil nil when no state file", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 
 		s, err := Load(root)
@@ -74,6 +80,7 @@ func TestLoad(t *testing.T) {
 	})
 
 	t.Run("reads back what Save wrote", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 
 		original := &State{
@@ -151,7 +158,9 @@ func TestLoad(t *testing.T) {
 }
 
 func TestSave(t *testing.T) {
+	t.Parallel()
 	t.Run("updates UpdatedAt", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 
 		before := time.Now().Add(-time.Second)
@@ -171,6 +180,7 @@ func TestSave(t *testing.T) {
 	})
 
 	t.Run("creates .forge directory if needed", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 
 		s := &State{Phase: PhasePlanning, CreatedAt: time.Now()}
@@ -190,6 +200,7 @@ func TestSave(t *testing.T) {
 }
 
 func TestNextTaskID(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		tasks []Task
@@ -236,6 +247,7 @@ func TestNextTaskID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			s := &State{Tasks: tt.tasks}
 			got := s.NextTaskID()
 			if got != tt.want {
@@ -246,6 +258,7 @@ func TestNextTaskID(t *testing.T) {
 }
 
 func TestAddTask(t *testing.T) {
+	t.Parallel()
 	s := &State{PlanVersion: 2}
 
 	task := s.AddTask(
@@ -287,6 +300,7 @@ func TestAddTask(t *testing.T) {
 }
 
 func TestFilterMethods(t *testing.T) {
+	t.Parallel()
 	s := &State{
 		Tasks: []Task{
 			{ID: "task-001", Status: TaskDone, Title: "Done task"},
@@ -344,6 +358,7 @@ func TestFilterMethods(t *testing.T) {
 }
 
 func TestFindTask(t *testing.T) {
+	t.Parallel()
 	s := &State{
 		Tasks: []Task{
 			{ID: "task-001", Title: "First"},
@@ -378,6 +393,7 @@ func TestFindTask(t *testing.T) {
 }
 
 func TestCancelTask(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		status    TaskStatus
@@ -394,6 +410,7 @@ func TestCancelTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			s := &State{
 				Tasks: []Task{
 					{ID: "task-001", Status: tt.status},
@@ -424,6 +441,7 @@ func TestCancelTask(t *testing.T) {
 	}
 
 	t.Run("task not found", func(t *testing.T) {
+		t.Parallel()
 		s := &State{}
 		err := s.CancelTask("task-999", "reason")
 		if err == nil {
@@ -436,6 +454,7 @@ func TestCancelTask(t *testing.T) {
 }
 
 func TestBumpPlanVersion(t *testing.T) {
+	t.Parallel()
 	s := &State{PlanVersion: 0}
 
 	v1 := s.BumpPlanVersion("Initial plan")
@@ -468,7 +487,9 @@ func TestBumpPlanVersion(t *testing.T) {
 }
 
 func TestAddConversationMessage(t *testing.T) {
+	t.Parallel()
 	t.Run("appends messages", func(t *testing.T) {
+		t.Parallel()
 		s := &State{}
 
 		s.AddConversationMessage("user", "Hello")
@@ -486,6 +507,7 @@ func TestAddConversationMessage(t *testing.T) {
 	})
 
 	t.Run("auto-trims at 50 messages", func(t *testing.T) {
+		t.Parallel()
 		s := &State{}
 
 		// Add 51 messages to trigger auto-trim
@@ -507,7 +529,9 @@ func TestAddConversationMessage(t *testing.T) {
 }
 
 func TestTrimConversationHistory(t *testing.T) {
+	t.Parallel()
 	t.Run("no-op when under limit", func(t *testing.T) {
+		t.Parallel()
 		s := &State{
 			ConversationHistory: []ConversationMsg{
 				{Role: "user", Content: "hello"},
@@ -522,6 +546,7 @@ func TestTrimConversationHistory(t *testing.T) {
 	})
 
 	t.Run("trims and summarizes", func(t *testing.T) {
+		t.Parallel()
 		s := &State{}
 		for i := 0; i < 20; i++ {
 			s.ConversationHistory = append(s.ConversationHistory, ConversationMsg{
@@ -545,6 +570,7 @@ func TestTrimConversationHistory(t *testing.T) {
 	})
 
 	t.Run("exact limit is no-op", func(t *testing.T) {
+		t.Parallel()
 		s := &State{
 			ConversationHistory: []ConversationMsg{
 				{Role: "user", Content: "one"},
@@ -561,6 +587,7 @@ func TestTrimConversationHistory(t *testing.T) {
 }
 
 func TestExecutableTasks(t *testing.T) {
+	t.Parallel()
 	t.Run("no dependencies — all pending are executable", func(t *testing.T) {
 		s := &State{
 			Tasks: []Task{
@@ -650,6 +677,7 @@ func TestExecutableTasks(t *testing.T) {
 }
 
 func TestGenerateReplanContext(t *testing.T) {
+	t.Parallel()
 	s := &State{
 		ProjectName: "my-api",
 		PlanVersion: 3,
@@ -694,6 +722,7 @@ func TestGenerateReplanContext(t *testing.T) {
 }
 
 func TestGenerateReplanContext_Empty(t *testing.T) {
+	t.Parallel()
 	s := &State{PlanVersion: 1}
 	ctx := s.GenerateReplanContext()
 
@@ -707,6 +736,7 @@ func TestGenerateReplanContext_Empty(t *testing.T) {
 }
 
 func TestRoundTrip(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	completedAt := time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)
@@ -851,6 +881,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 func TestInitForgeDir(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	s, err := InitForgeDir(root)
@@ -890,6 +921,7 @@ func TestInitForgeDir(t *testing.T) {
 }
 
 func TestProjectSnapshotRoundTrip(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	original := &State{
@@ -951,6 +983,7 @@ func TestProjectSnapshotRoundTrip(t *testing.T) {
 }
 
 func TestLogDir(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 
 	dir, err := LogDir(root)

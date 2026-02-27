@@ -18,7 +18,7 @@ type TransitionMsg struct {
 type AppModel struct {
 	state     *state.State
 	stateRoot string // project root directory
-	claude    *claude.Client
+	claude    claude.Claude
 	program   *tea.Program
 	phase     state.Phase
 	planning  PlanningModel
@@ -32,7 +32,7 @@ type AppModel struct {
 }
 
 // NewAppModel creates a new root model with the given state.
-func NewAppModel(s *state.State, root string, claudeClient *claude.Client) AppModel {
+func NewAppModel(s *state.State, root string, claudeClient claude.Claude) AppModel {
 	return AppModel{
 		state:     s,
 		stateRoot: root,

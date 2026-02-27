@@ -9,6 +9,7 @@ import (
 )
 
 func TestApplyPlanUpdate_Keep(t *testing.T) {
+	t.Parallel()
 	s := &state.State{
 		PlanVersion: 1,
 		Tasks: []state.Task{
@@ -23,8 +24,8 @@ func TestApplyPlanUpdate_Keep(t *testing.T) {
 		},
 	}
 
-	if err := applyPlanUpdate(s, update); err != nil {
-		t.Fatalf("applyPlanUpdate() error: %v", err)
+	if err := ApplyPlanUpdate(s, update); err != nil {
+		t.Fatalf("ApplyPlanUpdate() error: %v", err)
 	}
 
 	task := s.FindTask("task-001")
@@ -37,6 +38,7 @@ func TestApplyPlanUpdate_Keep(t *testing.T) {
 }
 
 func TestApplyPlanUpdate_Modify(t *testing.T) {
+	t.Parallel()
 	s := &state.State{
 		PlanVersion: 1,
 		Tasks: []state.Task{
@@ -66,8 +68,8 @@ func TestApplyPlanUpdate_Modify(t *testing.T) {
 		},
 	}
 
-	if err := applyPlanUpdate(s, update); err != nil {
-		t.Fatalf("applyPlanUpdate() error: %v", err)
+	if err := ApplyPlanUpdate(s, update); err != nil {
+		t.Fatalf("ApplyPlanUpdate() error: %v", err)
 	}
 
 	task := s.FindTask("task-001")
@@ -89,6 +91,7 @@ func TestApplyPlanUpdate_Modify(t *testing.T) {
 }
 
 func TestApplyPlanUpdate_ModifyCompletedTaskFails(t *testing.T) {
+	t.Parallel()
 	s := &state.State{
 		PlanVersion: 1,
 		Tasks: []state.Task{
@@ -103,7 +106,7 @@ func TestApplyPlanUpdate_ModifyCompletedTaskFails(t *testing.T) {
 		},
 	}
 
-	err := applyPlanUpdate(s, update)
+	err := ApplyPlanUpdate(s, update)
 	if err == nil {
 		t.Fatal("expected error when modifying completed task")
 	}
@@ -113,6 +116,7 @@ func TestApplyPlanUpdate_ModifyCompletedTaskFails(t *testing.T) {
 }
 
 func TestApplyPlanUpdate_Add(t *testing.T) {
+	t.Parallel()
 	s := &state.State{
 		PlanVersion: 2,
 		Tasks: []state.Task{
@@ -135,8 +139,8 @@ func TestApplyPlanUpdate_Add(t *testing.T) {
 		},
 	}
 
-	if err := applyPlanUpdate(s, update); err != nil {
-		t.Fatalf("applyPlanUpdate() error: %v", err)
+	if err := ApplyPlanUpdate(s, update); err != nil {
+		t.Fatalf("ApplyPlanUpdate() error: %v", err)
 	}
 
 	if len(s.Tasks) != 2 {
@@ -162,6 +166,7 @@ func TestApplyPlanUpdate_Add(t *testing.T) {
 }
 
 func TestApplyPlanUpdate_Remove(t *testing.T) {
+	t.Parallel()
 	s := &state.State{
 		PlanVersion: 1,
 		Tasks: []state.Task{
@@ -176,8 +181,8 @@ func TestApplyPlanUpdate_Remove(t *testing.T) {
 		},
 	}
 
-	if err := applyPlanUpdate(s, update); err != nil {
-		t.Fatalf("applyPlanUpdate() error: %v", err)
+	if err := ApplyPlanUpdate(s, update); err != nil {
+		t.Fatalf("ApplyPlanUpdate() error: %v", err)
 	}
 
 	task := s.FindTask("task-001")
@@ -190,6 +195,7 @@ func TestApplyPlanUpdate_Remove(t *testing.T) {
 }
 
 func TestApplyPlanUpdate_RemoveCompletedTaskFails(t *testing.T) {
+	t.Parallel()
 	s := &state.State{
 		PlanVersion: 1,
 		Tasks: []state.Task{
@@ -204,7 +210,7 @@ func TestApplyPlanUpdate_RemoveCompletedTaskFails(t *testing.T) {
 		},
 	}
 
-	err := applyPlanUpdate(s, update)
+	err := ApplyPlanUpdate(s, update)
 	if err == nil {
 		t.Fatal("expected error when removing completed task")
 	}
@@ -214,6 +220,7 @@ func TestApplyPlanUpdate_RemoveCompletedTaskFails(t *testing.T) {
 }
 
 func TestApplyPlanUpdate_MixedActions(t *testing.T) {
+	t.Parallel()
 	s := &state.State{
 		PlanVersion: 2,
 		Tasks: []state.Task{
@@ -233,8 +240,8 @@ func TestApplyPlanUpdate_MixedActions(t *testing.T) {
 		},
 	}
 
-	if err := applyPlanUpdate(s, update); err != nil {
-		t.Fatalf("applyPlanUpdate() error: %v", err)
+	if err := ApplyPlanUpdate(s, update); err != nil {
+		t.Fatalf("ApplyPlanUpdate() error: %v", err)
 	}
 
 	// task-001: kept as done
@@ -269,6 +276,7 @@ func TestApplyPlanUpdate_MixedActions(t *testing.T) {
 }
 
 func TestApplyPlanUpdate_UnknownAction(t *testing.T) {
+	t.Parallel()
 	s := &state.State{
 		PlanVersion: 1,
 		Tasks: []state.Task{
@@ -283,7 +291,7 @@ func TestApplyPlanUpdate_UnknownAction(t *testing.T) {
 		},
 	}
 
-	err := applyPlanUpdate(s, update)
+	err := ApplyPlanUpdate(s, update)
 	if err == nil {
 		t.Fatal("expected error for unknown action")
 	}
@@ -293,6 +301,7 @@ func TestApplyPlanUpdate_UnknownAction(t *testing.T) {
 }
 
 func TestApplyPlanUpdate_ModifyNotFound(t *testing.T) {
+	t.Parallel()
 	s := &state.State{PlanVersion: 1}
 
 	update := &claude.PlanUpdateJSON{
@@ -302,7 +311,7 @@ func TestApplyPlanUpdate_ModifyNotFound(t *testing.T) {
 		},
 	}
 
-	err := applyPlanUpdate(s, update)
+	err := ApplyPlanUpdate(s, update)
 	if err == nil {
 		t.Fatal("expected error for missing task")
 	}
@@ -312,6 +321,7 @@ func TestApplyPlanUpdate_ModifyNotFound(t *testing.T) {
 }
 
 func TestApplyPlanUpdate_RemoveDefaultReason(t *testing.T) {
+	t.Parallel()
 	s := &state.State{
 		PlanVersion: 1,
 		Tasks: []state.Task{
@@ -326,8 +336,8 @@ func TestApplyPlanUpdate_RemoveDefaultReason(t *testing.T) {
 		},
 	}
 
-	if err := applyPlanUpdate(s, update); err != nil {
-		t.Fatalf("applyPlanUpdate() error: %v", err)
+	if err := ApplyPlanUpdate(s, update); err != nil {
+		t.Fatalf("ApplyPlanUpdate() error: %v", err)
 	}
 
 	task := s.FindTask("task-001")
@@ -337,6 +347,7 @@ func TestApplyPlanUpdate_RemoveDefaultReason(t *testing.T) {
 }
 
 func TestFormatLOC(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input int
 		want  string
