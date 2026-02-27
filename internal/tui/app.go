@@ -39,7 +39,7 @@ func NewAppModel(s *state.State, root string, claudeClient claude.Claude) AppMod
 		claude:    claudeClient,
 		phase:     s.Phase,
 		planning:  NewPlanningModel(s, root, claudeClient, nil),
-		review:    NewReviewModel(s),
+		review:    NewReviewModel(s, root),
 		inputs:    NewInputsModel(),
 		execution: NewExecutionModel(),
 	}
@@ -94,7 +94,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case state.PhasePlanning:
 			m.planning = NewPlanningModel(m.state, m.stateRoot, m.claude, m.program)
 		case state.PhaseReview:
-			m.review = NewReviewModel(m.state)
+			m.review = NewReviewModel(m.state, m.stateRoot)
 		}
 
 		return m, nil
