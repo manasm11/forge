@@ -19,6 +19,7 @@ type AppModel struct {
 	state     *state.State
 	stateRoot string // project root directory
 	claude    *claude.Client
+	program   *tea.Program
 	phase     state.Phase
 	planning  PlanningModel
 	review    ReviewModel
@@ -37,18 +38,25 @@ func NewAppModel(s *state.State, root string, claudeClient *claude.Client) AppMo
 		stateRoot: root,
 		claude:    claudeClient,
 		phase:     s.Phase,
-		planning:  NewPlanningModel(s, root, claudeClient),
+		planning:  NewPlanningModel(s, root, claudeClient, nil),
 		review:    NewReviewModel(s),
 		inputs:    NewInputsModel(),
 		execution: NewExecutionModel(),
 	}
 }
 
-func (m AppModel) Init() tea.Cmd {
+// SetProgram sets the tea.Program reference for streaming operations.
+// Must be called after tea.NewProgram() and before p.Run().
+func (m *AppModel) SetProgram(p *tea.Program) {
+	m.program = p
+	m.planning.SetProgram(p)
+}
+
+func (m *AppModel) Init() tea.Cmd {
 	return m.planning.Init()
 }
 
-func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -84,7 +92,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Recreate phase models on transition
 		switch msg.To {
 		case state.PhasePlanning:
-			m.planning = NewPlanningModel(m.state, m.stateRoot, m.claude)
+			m.planning = NewPlanningModel(m.state, m.stateRoot, m.claude, m.program)
 		case state.PhaseReview:
 			m.review = NewReviewModel(m.state)
 		}
@@ -108,7 +116,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m AppModel) View() string {
+func (m *AppModel) View() string {
 	if m.quitting {
 		return ""
 	}
@@ -143,7 +151,7 @@ func (m AppModel) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, content, statusBar)
 }
 
-func (m AppModel) renderHeader() string {
+func (m *AppModel) renderHeader() string {
 	title := TitleStyle.Render("⚒ forge")
 
 	phases := []struct {
@@ -180,11 +188,11 @@ func (m AppModel) renderHeader() string {
 }
 
 // State returns the current state for external access (e.g., final save).
-func (m AppModel) State() *state.State {
+func (m *AppModel) State() *state.State {
 	return m.state
 }
 
-func (m AppModel) renderStatusBar() string {
+func (m *AppModel) renderStatusBar() string {
 	help := "ctrl+c: quit"
 	if m.phase != state.PhasePlanning {
 		help = "ctrl+p: prev  |  " + help

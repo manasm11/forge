@@ -41,6 +41,20 @@ type ResponseMsg struct {
 	Err     error
 }
 
+// StreamStartMsg indicates a streaming response has begun.
+type StreamStartMsg struct{}
+
+// StreamChunkMsg carries a chunk of text from the streaming response.
+type StreamChunkMsg struct {
+	Chunk string
+}
+
+// StreamDoneMsg indicates the stream is complete.
+type StreamDoneMsg struct {
+	FullText string
+	Err      error
+}
+
 // MessageSender is called when the user sends a message.
 // It receives the user's text and returns a tea.Cmd that will
 // eventually produce a ResponseMsg.
@@ -53,16 +67,18 @@ type SlashHandler func(cmd SlashCommand) (tea.Cmd, bool)
 
 // ChatModel is a reusable chat UI component.
 type ChatModel struct {
-	messages     []Message
-	viewport     viewport.Model
-	textInput    textinput.Model
-	spinner      spinner.Model
-	sender       MessageSender
-	slashHandler SlashHandler
-	waiting      bool
-	width        int
-	height       int
-	ready        bool
+	messages        []Message
+	viewport        viewport.Model
+	textInput       textinput.Model
+	spinner         spinner.Model
+	sender          MessageSender
+	slashHandler    SlashHandler
+	waiting         bool
+	streaming       bool // true while receiving stream chunks
+	streamingMsgIdx int  // index of the message being streamed into
+	width           int
+	height          int
+	ready           bool
 }
 
 // Styles for chat rendering.
@@ -153,6 +169,44 @@ func (m ChatModel) Update(msg tea.Msg) (ChatModel, tea.Cmd) {
 			m.addMessage(RoleAssistant, msg.Content)
 		}
 		m.refreshViewport()
+		return m, nil
+
+	case StreamStartMsg:
+		m.streaming = true
+		m.waiting = true
+		m.addMessage(RoleAssistant, "")
+		m.streamingMsgIdx = len(m.messages) - 1
+		m.refreshViewport()
+		return m, m.spinner.Tick
+
+	case StreamChunkMsg:
+		if m.streaming && m.streamingMsgIdx >= 0 && m.streamingMsgIdx < len(m.messages) {
+			m.messages[m.streamingMsgIdx].Content += msg.Chunk
+			atBottom := m.viewport.AtBottom()
+			m.viewport.SetContent(m.renderMessages())
+			if atBottom {
+				m.viewport.GotoBottom()
+			}
+		}
+		return m, nil
+
+	case StreamDoneMsg:
+		m.streaming = false
+		m.waiting = false
+		if msg.Err != nil {
+			if m.streamingMsgIdx >= 0 && m.streamingMsgIdx < len(m.messages) {
+				if m.messages[m.streamingMsgIdx].Content == "" {
+					// Replace empty streaming message with error
+					m.messages[m.streamingMsgIdx].Role = RoleSystem
+					m.messages[m.streamingMsgIdx].Content = fmt.Sprintf("Error: %v", msg.Err)
+				} else {
+					// Append error as new system message
+					m.addMessage(RoleSystem, fmt.Sprintf("Error: %v", msg.Err))
+				}
+			}
+		}
+		m.refreshViewport()
+		m.textInput.Focus()
 		return m, nil
 
 	case spinner.TickMsg:
@@ -282,6 +336,7 @@ func (m *ChatModel) ReceiveResponse(content string) tea.Cmd {
 // ClearMessages removes all messages.
 func (m *ChatModel) ClearMessages() {
 	m.messages = nil
+	m.streaming = false
 	m.refreshViewport()
 }
 
@@ -313,10 +368,15 @@ func (m ChatModel) renderMessages() string {
 		if i > 0 {
 			sb.WriteString("\n")
 		}
-		sb.WriteString(m.renderMessage(msg, contentWidth))
+		rendered := m.renderMessage(msg, contentWidth)
+		// Add cursor indicator for currently-streaming message
+		if m.streaming && i == m.streamingMsgIdx {
+			rendered += "▊"
+		}
+		sb.WriteString(rendered)
 	}
 
-	if m.waiting {
+	if m.waiting && !m.streaming {
 		if len(m.messages) > 0 {
 			sb.WriteString("\n\n")
 		}

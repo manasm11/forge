@@ -13,34 +13,29 @@ import (
 
 // PlanningModel manages the planning phase conversation with Claude.
 type PlanningModel struct {
-	chat                components.ChatModel
-	state               *state.State
-	stateRoot           string
-	claude              *claude.Client
-	isReplanning        bool
-	firstMessageSent    bool
-	restartConfirmed    bool
-	width, height       int
-}
-
-// planningResponseMsg wraps a claude response and carries the raw text
-// so we can check for plan tags in Update().
-type planningResponseMsg struct {
-	text    string
-	rawJSON string
+	chat             components.ChatModel
+	state            *state.State
+	stateRoot        string
+	claude           *claude.Client
+	program          *tea.Program
+	isReplanning     bool
+	firstMessageSent bool
+	restartConfirmed bool
+	width, height    int
 }
 
 // restartMsg signals that the chat should be restarted.
 type restartMsg struct{}
 
 // NewPlanningModel creates a new planning phase model.
-func NewPlanningModel(s *state.State, root string, claudeClient *claude.Client) PlanningModel {
+func NewPlanningModel(s *state.State, root string, claudeClient *claude.Client, p *tea.Program) PlanningModel {
 	isReplanning := s.PlanVersion > 0 || len(s.Tasks) > 0
 
 	m := PlanningModel{
 		state:        s,
 		stateRoot:    root,
 		claude:       claudeClient,
+		program:      p,
 		isReplanning: isReplanning,
 	}
 
@@ -118,42 +113,63 @@ func (m PlanningModel) Update(msg tea.Msg) (PlanningModel, tea.Cmd) {
 			}
 		}
 
-	case planningResponseMsg:
-		// Send text to chat for display
-		cmd := m.chat.ReceiveResponse(msg.text)
+	case components.StreamStartMsg:
+		var cmd tea.Cmd
+		m.chat, cmd = m.chat.Update(msg)
+		return m, cmd
+
+	case components.StreamChunkMsg:
+		var cmd tea.Cmd
+		m.chat, cmd = m.chat.Update(msg)
+		return m, cmd
+
+	case components.StreamDoneMsg:
+		// Let chat handle UI cleanup
+		var cmd tea.Cmd
+		m.chat, cmd = m.chat.Update(msg)
+		var cmds []tea.Cmd
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+		if msg.Err != nil {
+			return m, tea.Batch(cmds...)
+		}
 
 		// Check for final plan tags (initial planning)
-		plan, err := claude.ExtractFinalPlan(msg.text)
+		plan, err := claude.ExtractFinalPlan(msg.FullText)
 		if err != nil {
 			m.chat.AddMessage(components.RoleSystem, fmt.Sprintf("Error parsing plan: %v", err))
-			return m, cmd
+			return m, tea.Batch(cmds...)
 		}
 		if plan != nil {
 			m.applyFinalPlan(plan)
-			return m, func() tea.Msg {
+			cmds = append(cmds, func() tea.Msg {
 				return TransitionMsg{To: state.PhaseReview}
-			}
+			})
+			return m, tea.Batch(cmds...)
 		}
 
 		// Check for plan update tags (replanning)
-		update, err := claude.ExtractPlanUpdate(msg.text)
+		update, err := claude.ExtractPlanUpdate(msg.FullText)
 		if err != nil {
 			m.chat.AddMessage(components.RoleSystem, fmt.Sprintf("Error parsing plan update: %v", err))
-			return m, cmd
+			return m, tea.Batch(cmds...)
 		}
 		if update != nil {
 			if err := applyPlanUpdate(m.state, update); err != nil {
 				m.chat.AddMessage(components.RoleSystem, fmt.Sprintf("Error applying plan update: %v", err))
-				return m, cmd
+				return m, tea.Batch(cmds...)
 			}
 			m.state.BumpPlanVersion(update.Summary)
 			_ = state.Save(m.stateRoot, m.state)
-			return m, func() tea.Msg {
+			cmds = append(cmds, func() tea.Msg {
 				return TransitionMsg{To: state.PhaseReview}
-			}
+			})
+			return m, tea.Batch(cmds...)
 		}
 
-		return m, cmd
+		return m, tea.Batch(cmds...)
 
 	case restartMsg:
 		m.chat.ClearMessages()
@@ -188,7 +204,12 @@ func (m *PlanningModel) SetSize(w, h int) {
 	m.chat.SetSize(w, h)
 }
 
-// createSender returns the MessageSender that communicates with Claude.
+// SetProgram sets the tea.Program reference for streaming.
+func (m *PlanningModel) SetProgram(p *tea.Program) {
+	m.program = p
+}
+
+// createSender returns the MessageSender that communicates with Claude via streaming.
 func (m *PlanningModel) createSender() components.MessageSender {
 	return func(text string) tea.Cmd {
 		return func() tea.Msg {
@@ -196,33 +217,47 @@ func (m *PlanningModel) createSender() components.MessageSender {
 			m.state.AddConversationMessage("user", text)
 
 			if m.claude == nil {
-				return components.ResponseMsg{
+				return components.StreamDoneMsg{
 					Err: fmt.Errorf("Claude CLI not available. Please install it and restart forge."),
 				}
+			}
+
+			// Signal stream start
+			if m.program != nil {
+				m.program.Send(components.StreamStartMsg{})
 			}
 
 			var resp *claude.Response
 			var err error
 
+			onChunk := func(chunk string) {
+				if m.program != nil {
+					m.program.Send(components.StreamChunkMsg{Chunk: chunk})
+				}
+			}
+
 			if !m.firstMessageSent {
 				m.firstMessageSent = true
 				prompt := m.buildFirstPrompt(text)
-				resp, err = m.claude.Send(context.Background(), prompt)
+				resp, err = m.claude.SendStreaming(context.Background(), prompt, onChunk)
 			} else {
-				resp, err = m.claude.Continue(context.Background(), text)
-			}
-
-			if err != nil {
-				return components.ResponseMsg{Err: err}
+				resp, err = m.claude.ContinueStreaming(context.Background(), text, onChunk)
 			}
 
 			// Save assistant response to conversation history
-			m.state.AddConversationMessage("assistant", resp.Text)
-			_ = state.Save(m.stateRoot, m.state)
+			if err == nil && resp != nil {
+				m.state.AddConversationMessage("assistant", resp.Text)
+				_ = state.Save(m.stateRoot, m.state)
+			}
 
-			return planningResponseMsg{
-				text:    resp.Text,
-				rawJSON: resp.RawJSON,
+			fullText := ""
+			if resp != nil {
+				fullText = resp.Text
+			}
+
+			return components.StreamDoneMsg{
+				FullText: fullText,
+				Err:      err,
 			}
 		}
 	}
@@ -280,9 +315,9 @@ func (m *PlanningModel) createSlashHandler() components.SlashHandler {
 	return func(cmd components.SlashCommand) (tea.Cmd, bool) {
 		switch cmd.Name {
 		case "done":
-			return m.handleDone(), true
+			return m.handleSlashCommand("/done", m.doneInstruction()), true
 		case "summary":
-			return m.handleSummary(), true
+			return m.handleSlashCommand("/summary", "Please summarize your current understanding of the project and what you'd include in the plan."), true
 		case "restart":
 			return m.handleRestart(), true
 		default:
@@ -291,85 +326,61 @@ func (m *PlanningModel) createSlashHandler() components.SlashHandler {
 	}
 }
 
-func (m *PlanningModel) handleDone() tea.Cmd {
-	if m.claude == nil {
-		return func() tea.Msg {
-			return components.ResponseMsg{
-				Err: fmt.Errorf("Claude CLI not available"),
-			}
-		}
-	}
-
-	var instruction string
+func (m *PlanningModel) doneInstruction() string {
 	if m.isReplanning {
-		instruction = "The user has requested the updated plan. Based on everything discussed, generate the plan update now. Output inside <plan_update> tags with the JSON format specified."
-	} else {
-		instruction = "The user has requested the final plan. Based on everything discussed, generate the plan now. Output inside <final_plan> tags with the JSON format specified."
+		return "The user has requested the updated plan. Based on everything discussed, generate the plan update now. Output inside <plan_update> tags with the JSON format specified."
 	}
-
-	return func() tea.Msg {
-		m.state.AddConversationMessage("user", "/done")
-
-		var resp *claude.Response
-		var err error
-
-		if !m.firstMessageSent {
-			m.firstMessageSent = true
-			prompt := m.buildFirstPrompt(instruction)
-			resp, err = m.claude.Send(context.Background(), prompt)
-		} else {
-			resp, err = m.claude.Continue(context.Background(), instruction)
-		}
-
-		if err != nil {
-			return components.ResponseMsg{Err: err}
-		}
-
-		m.state.AddConversationMessage("assistant", resp.Text)
-		_ = state.Save(m.stateRoot, m.state)
-
-		return planningResponseMsg{
-			text:    resp.Text,
-			rawJSON: resp.RawJSON,
-		}
-	}
+	return "The user has requested the final plan. Based on everything discussed, generate the plan now. Output inside <final_plan> tags with the JSON format specified."
 }
 
-func (m *PlanningModel) handleSummary() tea.Cmd {
+// handleSlashCommand sends a command through the streaming sender.
+func (m *PlanningModel) handleSlashCommand(cmdName, instruction string) tea.Cmd {
 	if m.claude == nil {
 		return func() tea.Msg {
-			return components.ResponseMsg{
+			return components.StreamDoneMsg{
 				Err: fmt.Errorf("Claude CLI not available"),
 			}
 		}
 	}
 
-	instruction := "Please summarize your current understanding of the project and what you'd include in the plan."
-
 	return func() tea.Msg {
-		m.state.AddConversationMessage("user", "/summary")
+		m.state.AddConversationMessage("user", cmdName)
+
+		// Signal stream start
+		if m.program != nil {
+			m.program.Send(components.StreamStartMsg{})
+		}
 
 		var resp *claude.Response
 		var err error
 
+		onChunk := func(chunk string) {
+			if m.program != nil {
+				m.program.Send(components.StreamChunkMsg{Chunk: chunk})
+			}
+		}
+
 		if !m.firstMessageSent {
 			m.firstMessageSent = true
 			prompt := m.buildFirstPrompt(instruction)
-			resp, err = m.claude.Send(context.Background(), prompt)
+			resp, err = m.claude.SendStreaming(context.Background(), prompt, onChunk)
 		} else {
-			resp, err = m.claude.Continue(context.Background(), instruction)
+			resp, err = m.claude.ContinueStreaming(context.Background(), instruction, onChunk)
 		}
 
-		if err != nil {
-			return components.ResponseMsg{Err: err}
+		if err == nil && resp != nil {
+			m.state.AddConversationMessage("assistant", resp.Text)
+			_ = state.Save(m.stateRoot, m.state)
 		}
 
-		m.state.AddConversationMessage("assistant", resp.Text)
-		_ = state.Save(m.stateRoot, m.state)
+		fullText := ""
+		if resp != nil {
+			fullText = resp.Text
+		}
 
-		return planningResponseMsg{
-			text:    resp.Text,
-			rawJSON: resp.RawJSON,
+		return components.StreamDoneMsg{
+			FullText: fullText,
+			Err:      err,
 		}
 	}
 }

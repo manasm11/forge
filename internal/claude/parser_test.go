@@ -4,6 +4,73 @@ import (
 	"testing"
 )
 
+func TestParseStreamChunk(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "content_block_delta with text_delta",
+			input: `{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello "}}`,
+			want:  "Hello ",
+		},
+		{
+			name:  "assistant message with content",
+			input: `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi there"}]}}`,
+			want:  "Hi there",
+		},
+		{
+			name:  "result type returns empty",
+			input: `{"type":"result","result":{"role":"assistant"}}`,
+			want:  "",
+		},
+		{
+			name:  "invalid json returns trimmed line",
+			input: `not json at all`,
+			want:  "not json at all",
+		},
+		{
+			name:  "empty line",
+			input: ``,
+			want:  "",
+		},
+		{
+			name:  "json with no text field (ping)",
+			input: `{"type":"ping"}`,
+			want:  "",
+		},
+		{
+			name:  "message_start returns empty",
+			input: `{"type":"message_start"}`,
+			want:  "",
+		},
+		{
+			name:  "content_block_start with text",
+			input: `{"type":"content_block_start","content_block":{"type":"text","text":"initial"}}`,
+			want:  "initial",
+		},
+		{
+			name:  "content_block_start with empty text",
+			input: `{"type":"content_block_start","content_block":{"type":"text","text":""}}`,
+			want:  "",
+		},
+		{
+			name:  "delta with non-text type",
+			input: `{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"abc"}}`,
+			want:  "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseStreamChunk(tt.input)
+			if got != tt.want {
+				t.Errorf("parseStreamChunk(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractTagContent(t *testing.T) {
 	tests := []struct {
 		name      string

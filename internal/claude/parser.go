@@ -3,6 +3,7 @@ package claude
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -124,6 +125,66 @@ func ExtractPlanUpdate(text string) (*PlanUpdateJSON, error) {
 	}
 
 	return &update, nil
+}
+
+// parseStreamChunk extracts displayable text from a single line of stream-json output.
+// Returns empty string if the line doesn't contain displayable text.
+// Must handle unknown/unexpected JSON structures gracefully.
+func parseStreamChunk(line string) string {
+	if line == "" {
+		return ""
+	}
+
+	var obj map[string]interface{}
+	if err := json.Unmarshal([]byte(line), &obj); err != nil {
+		// Not JSON — might be raw text output. Return as-is if non-empty.
+		return strings.TrimSpace(line)
+	}
+
+	msgType, _ := obj["type"].(string)
+
+	// content_block_delta with text_delta
+	if delta, ok := obj["delta"].(map[string]interface{}); ok {
+		if text, ok := delta["text"].(string); ok {
+			return text
+		}
+	}
+
+	// assistant message with content array (initial message)
+	if msg, ok := obj["message"].(map[string]interface{}); ok {
+		if content, ok := msg["content"].([]interface{}); ok {
+			var texts []string
+			for _, block := range content {
+				if b, ok := block.(map[string]interface{}); ok {
+					if text, ok := b["text"].(string); ok {
+						texts = append(texts, text)
+					}
+				}
+			}
+			return strings.Join(texts, "")
+		}
+	}
+
+	// result type — full assembled text, skip to avoid duplication
+	if msgType == "result" {
+		return ""
+	}
+
+	// content_block_start with initial text
+	if cb, ok := obj["content_block"].(map[string]interface{}); ok {
+		if text, ok := cb["text"].(string); ok && text != "" {
+			return text
+		}
+	}
+
+	// Log unknown types for debugging (only non-control types)
+	if msgType != "" && msgType != "message_start" && msgType != "message_stop" &&
+		msgType != "content_block_start" && msgType != "content_block_stop" &&
+		msgType != "ping" && msgType != "message_delta" {
+		log.Printf("unknown stream-json type: %s", msgType)
+	}
+
+	return ""
 }
 
 // extractTagContent extracts content between <tag>...</tag>.

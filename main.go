@@ -91,8 +91,8 @@ func main() {
 		fmt.Printf("  Resuming forge session (Phase: %s, %d/%d tasks done)\n\n", s.Phase, completed, total)
 	}
 
-	// 5. Create Claude client
-	claudeClient, err := claude.NewClient("claude", 5*time.Minute)
+	// 5. Create Claude client (sonnet model for planning, --max-turns 1 default)
+	claudeClient, err := claude.NewClient("claude", 5*time.Minute, "sonnet")
 	if err != nil {
 		// Don't exit — let the TUI start and show error when user tries to chat
 		fmt.Printf("  Warning: %v\n", err)
@@ -104,7 +104,11 @@ func main() {
 	app := tui.NewAppModel(s, root, claudeClient)
 
 	// 7. Run bubbletea
-	p := tea.NewProgram(app, tea.WithAltScreen())
+	p := tea.NewProgram(&app, tea.WithAltScreen())
+
+	// Set the program reference for streaming support
+	app.SetProgram(p)
+
 	finalModel, err := p.Run()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error running application: %v\n", err)
@@ -112,7 +116,7 @@ func main() {
 	}
 
 	// 8. On exit, save final state
-	if m, ok := finalModel.(tui.AppModel); ok {
+	if m, ok := finalModel.(*tui.AppModel); ok {
 		if saveErr := state.Save(root, m.State()); saveErr != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not save state on exit: %v\n", saveErr)
 		}
