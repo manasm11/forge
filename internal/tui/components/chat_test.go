@@ -1,6 +1,7 @@
 package components
 
 import (
+	"fmt"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -164,6 +165,97 @@ func TestClearMessages(t *testing.T) {
 
 	if len(m.Messages()) != 0 {
 		t.Errorf("ClearMessages() messages = %d, want 0", len(m.Messages()))
+	}
+}
+
+func TestStreamStart(t *testing.T) {
+	t.Parallel()
+	sender := func(text string) tea.Cmd { return nil }
+	m := NewChatModel(sender, nil)
+	m.SetSize(80, 24)
+
+	m, _ = m.Update(StreamStartMsg{})
+
+	if !m.streaming {
+		t.Error("StreamStartMsg should set streaming=true")
+	}
+	if !m.waiting {
+		t.Error("StreamStartMsg should set waiting=true")
+	}
+	msgs := m.Messages()
+	if len(msgs) != 1 {
+		t.Fatalf("should have 1 message (empty assistant), got %d", len(msgs))
+	}
+	if msgs[0].Role != RoleAssistant {
+		t.Errorf("message role = %q, want %q", msgs[0].Role, RoleAssistant)
+	}
+	if msgs[0].Content != "" {
+		t.Errorf("streaming message content should be empty, got %q", msgs[0].Content)
+	}
+}
+
+func TestStreamChunk(t *testing.T) {
+	t.Parallel()
+	sender := func(text string) tea.Cmd { return nil }
+	m := NewChatModel(sender, nil)
+	m.SetSize(80, 24)
+
+	// Start stream first
+	m, _ = m.Update(StreamStartMsg{})
+
+	// Send chunks
+	m, _ = m.Update(StreamChunkMsg{Chunk: "Hello "})
+	m, _ = m.Update(StreamChunkMsg{Chunk: "world!"})
+
+	msgs := m.Messages()
+	if len(msgs) != 1 {
+		t.Fatalf("should still have 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Content != "Hello world!" {
+		t.Errorf("content = %q, want %q", msgs[0].Content, "Hello world!")
+	}
+}
+
+func TestStreamDone(t *testing.T) {
+	t.Parallel()
+	sender := func(text string) tea.Cmd { return nil }
+	m := NewChatModel(sender, nil)
+	m.SetSize(80, 24)
+
+	// Start and complete stream
+	m, _ = m.Update(StreamStartMsg{})
+	m, _ = m.Update(StreamChunkMsg{Chunk: "response text"})
+	m, _ = m.Update(StreamDoneMsg{FullText: "response text"})
+
+	if m.streaming {
+		t.Error("StreamDoneMsg should set streaming=false")
+	}
+	if m.waiting {
+		t.Error("StreamDoneMsg should set waiting=false")
+	}
+}
+
+func TestStreamDone_WithError(t *testing.T) {
+	t.Parallel()
+	sender := func(text string) tea.Cmd { return nil }
+	m := NewChatModel(sender, nil)
+	m.SetSize(80, 24)
+
+	// Start stream (creates empty assistant message)
+	m, _ = m.Update(StreamStartMsg{})
+
+	// Complete with error — empty streaming message should become error
+	m, _ = m.Update(StreamDoneMsg{Err: fmt.Errorf("connection failed")})
+
+	msgs := m.Messages()
+	if len(msgs) != 1 {
+		t.Fatalf("should have 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Role != RoleSystem {
+		t.Errorf("error message role = %q, want %q", msgs[0].Role, RoleSystem)
+	}
+	if msgs[0].Content != "Error: connection failed" {
+		t.Errorf("error message content = %q", msgs[0].Content)
 	}
 }
 

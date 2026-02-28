@@ -69,7 +69,7 @@ func EnvVarsForProvider(cfg Config) map[string]string {
 	return map[string]string{
 		"ANTHROPIC_BASE_URL":   url,
 		"ANTHROPIC_AUTH_TOKEN": "ollama",
-		"ANTHROPIC_API_KEY":    "",
+		"ANTHROPIC_API_KEY":    "ollama",
 	}
 }
 

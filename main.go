@@ -111,20 +111,30 @@ func main() {
 		completed := len(s.CompletedTasks())
 		total := len(s.Tasks)
 		fmt.Printf("  Resuming forge session (Phase: %s, %d/%d tasks done)\n\n", s.Phase, completed, total)
+
+		// Bug 3 fix: Restore provider from saved state instead of re-detecting
+		if s.Settings != nil && s.Settings.Provider.Type != "" {
+			selectedProvider = s.Settings.Provider.Type
+		}
 	}
 
 	// 5. Create Claude client (sonnet model for planning, --max-turns 1 default)
 	var claudeClient claude.Claude
 	// Use model from state (set during provider init) or fall back to "sonnet"
 	model := "sonnet"
-	if s.Settings.Provider.Model != "" {
+	if s.Settings != nil && s.Settings.Provider.Model != "" {
 		model = s.Settings.Provider.Model
+	}
+	// Use saved Ollama URL if available, otherwise default
+	ollamaURL := provider.DefaultOllamaURL()
+	if s.Settings != nil && s.Settings.Provider.OllamaURL != "" {
+		ollamaURL = s.Settings.Provider.OllamaURL
 	}
 	// Create provider-specific environment variables
 	providerEnvVars := provider.EnvVarsForProvider(provider.Config{
 		Type:      selectedProvider,
 		Model:     model,
-		OllamaURL: provider.DefaultOllamaURL(),
+		OllamaURL: ollamaURL,
 	})
 
 	if c, err := claude.NewClient("claude", 5*time.Minute, model); err != nil {

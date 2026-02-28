@@ -253,6 +253,58 @@ func TestGenerateTaskPrompt(t *testing.T) {
 	}
 }
 
+func TestGenerateTaskPrompt_NilSettings(t *testing.T) {
+	t.Parallel()
+	task := state.Task{
+		ID: "task-001", Title: "Init", Description: "Setup project",
+		AcceptanceCriteria: []string{"compiles"},
+	}
+
+	// Should not panic with nil settings
+	prompt := GenerateTaskPrompt("context", task, nil)
+
+	if prompt == "" {
+		t.Error("should produce non-empty prompt with nil settings")
+	}
+	if !strings.Contains(prompt, "task-001") {
+		t.Error("prompt should contain task ID")
+	}
+}
+
+func TestGenerateTaskPrompt_EmptyDescription(t *testing.T) {
+	t.Parallel()
+	task := state.Task{
+		ID: "task-001", Title: "Init",
+		// Description intentionally empty
+		AcceptanceCriteria: []string{"compiles"},
+	}
+
+	prompt := GenerateTaskPrompt("context", task, &state.Settings{})
+
+	if prompt == "" {
+		t.Error("should produce non-empty prompt with empty description")
+	}
+	if !strings.Contains(prompt, "task-001") {
+		t.Error("prompt should contain task ID")
+	}
+}
+
+func TestGenerateTaskPrompt_EmptyCriteria(t *testing.T) {
+	t.Parallel()
+	task := state.Task{
+		ID:          "task-001",
+		Title:       "Init",
+		Description: "Some description",
+		// AcceptanceCriteria intentionally empty
+	}
+
+	prompt := GenerateTaskPrompt("context", task, &state.Settings{})
+
+	if strings.Contains(prompt, "ACCEPTANCE CRITERIA") {
+		t.Error("prompt should omit ACCEPTANCE CRITERIA section when no criteria")
+	}
+}
+
 func TestGenerateTaskPrompt_NoTestCommand(t *testing.T) {
 	t.Parallel()
 	task := state.Task{
@@ -264,5 +316,37 @@ func TestGenerateTaskPrompt_NoTestCommand(t *testing.T) {
 
 	if strings.Contains(prompt, "Run the test command: \n") {
 		t.Error("should handle empty test command gracefully")
+	}
+}
+
+// ============================================================
+// GenerateMCPConfig — additional tests
+// ============================================================
+
+func TestGenerateMCPConfig_EmptySlice(t *testing.T) {
+	t.Parallel()
+	config := GenerateMCPConfig([]MCPServer{})
+
+	if !strings.Contains(config, "mcpServers") {
+		t.Error("empty slice should still produce valid JSON with mcpServers key")
+	}
+	if !strings.HasPrefix(strings.TrimSpace(config), "{") {
+		t.Error("should produce valid JSON")
+	}
+}
+
+func TestGenerateMCPConfig_NilArgs(t *testing.T) {
+	t.Parallel()
+	servers := []MCPServer{
+		{Name: "test-server", Enabled: true, Command: "node", Args: nil},
+	}
+
+	config := GenerateMCPConfig(servers)
+
+	if !strings.Contains(config, "test-server") {
+		t.Error("should contain the server name")
+	}
+	if !strings.HasPrefix(strings.TrimSpace(config), "{") {
+		t.Error("should produce valid JSON even with nil Args")
 	}
 }

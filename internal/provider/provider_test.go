@@ -33,8 +33,8 @@ func TestEnvVarsForProvider_Ollama_Default(t *testing.T) {
 	if env["ANTHROPIC_AUTH_TOKEN"] != "ollama" {
 		t.Errorf("ANTHROPIC_AUTH_TOKEN = %q", env["ANTHROPIC_AUTH_TOKEN"])
 	}
-	if env["ANTHROPIC_API_KEY"] != "" {
-		t.Errorf("ANTHROPIC_API_KEY should be empty string, got %q", env["ANTHROPIC_API_KEY"])
+	if env["ANTHROPIC_API_KEY"] != "ollama" {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want %q", env["ANTHROPIC_API_KEY"], "ollama")
 	}
 }
 
@@ -312,6 +312,43 @@ func TestMergeEnvVars(t *testing.T) {
 				t.Errorf("%s = %q, want %q", tt.wantKey, result[tt.wantKey], tt.wantVal)
 			}
 		})
+	}
+}
+
+func TestDefaultConfig(t *testing.T) {
+	t.Parallel()
+	cfg := DefaultConfig()
+
+	if cfg.Type != ProviderAnthropic {
+		t.Errorf("Type = %q, want %q", cfg.Type, ProviderAnthropic)
+	}
+	if cfg.Model != "sonnet" {
+		t.Errorf("Model = %q, want %q", cfg.Model, "sonnet")
+	}
+	if cfg.OllamaURL != "" {
+		t.Errorf("OllamaURL = %q, want empty", cfg.OllamaURL)
+	}
+}
+
+func TestModelInList_EmptyModels(t *testing.T) {
+	t.Parallel()
+	if ModelInList("qwen3-coder", nil) {
+		t.Error("ModelInList with nil models should return false")
+	}
+	if ModelInList("qwen3-coder", []OllamaModel{}) {
+		t.Error("ModelInList with empty models should return false")
+	}
+}
+
+func TestMergeEnvVars_EmptyBothMaps(t *testing.T) {
+	t.Parallel()
+	result := MergeEnvVars(map[string]string{}, map[string]string{})
+
+	if result == nil {
+		t.Error("MergeEnvVars with both empty should return non-nil map")
+	}
+	if len(result) != 0 {
+		t.Errorf("MergeEnvVars with both empty should return empty map, got len %d", len(result))
 	}
 }
 

@@ -53,6 +53,36 @@ func TestRunAll_ResultCount(t *testing.T) {
 	}
 }
 
+func TestCheck_NonExistentTool(t *testing.T) {
+	t.Parallel()
+	result := check("nonexistent_xyz_abc_tool")
+
+	if result.Found {
+		t.Error("non-existent tool should have Found=false")
+	}
+	if result.Error == "" {
+		t.Error("non-existent tool should have non-empty Error")
+	}
+	if result.Name != "nonexistent_xyz_abc_tool" {
+		t.Errorf("Name = %q, want %q", result.Name, "nonexistent_xyz_abc_tool")
+	}
+}
+
+func TestCheck_Git(t *testing.T) {
+	t.Parallel()
+	result := check("git")
+
+	if !result.Found {
+		t.Skip("git not installed in test environment")
+	}
+	if result.Version == "" {
+		t.Error("git Version should not be empty when Found=true")
+	}
+	if result.Name != "git" {
+		t.Errorf("Name = %q, want %q", result.Name, "git")
+	}
+}
+
 func TestCheckResult_FieldsPopulated(t *testing.T) {
 	t.Parallel()
 	results := RunAll()

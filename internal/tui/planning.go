@@ -137,7 +137,10 @@ func (m PlanningModel) Update(msg tea.Msg) (PlanningModel, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 		if plan != nil {
-			m.applyFinalPlan(plan)
+			if err := m.applyFinalPlan(plan); err != nil {
+				m.chat.AddMessage(components.RoleSystem, fmt.Sprintf("Error applying plan: %v", err))
+				return m, tea.Batch(cmds...)
+			}
 			cmds = append(cmds, func() tea.Msg {
 				return TransitionMsg{To: state.PhaseReview}
 			})
@@ -401,9 +404,14 @@ func (m *PlanningModel) handleRestart() tea.Cmd {
 }
 
 // applyFinalPlan converts a PlanJSON into state tasks using the exported function.
-func (m *PlanningModel) applyFinalPlan(plan *claude.PlanJSON) {
-	_ = ApplyInitialPlan(m.state, plan)
-	_ = state.Save(m.stateRoot, m.state)
+func (m *PlanningModel) applyFinalPlan(plan *claude.PlanJSON) error {
+	if err := ApplyInitialPlan(m.state, plan); err != nil {
+		return fmt.Errorf("invalid plan: %w", err)
+	}
+	if err := state.Save(m.stateRoot, m.state); err != nil {
+		return fmt.Errorf("failed to save state: %w", err)
+	}
+	return nil
 }
 
 // formatLOC formats a line count for display (e.g., 3200 -> "3,200").
