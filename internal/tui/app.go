@@ -51,7 +51,7 @@ func NewAppModel(s *state.State, root string, claudeClient claude.Claude, claude
 // Must be called after tea.NewProgram() and before p.Run().
 func (m *AppModel) SetProgram(p *tea.Program) {
 	m.program = p
-	m.planning.SetProgram(p)
+	m.planning = NewPlanningModel(m.state, m.stateRoot, m.claude, p)
 	m.execution.SetProgram(p)
 }
 

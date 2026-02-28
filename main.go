@@ -115,14 +115,19 @@ func main() {
 
 	// 5. Create Claude client (sonnet model for planning, --max-turns 1 default)
 	var claudeClient claude.Claude
+	// Use model from state (set during provider init) or fall back to "sonnet"
+	model := "sonnet"
+	if s.Settings.Provider.Model != "" {
+		model = s.Settings.Provider.Model
+	}
 	// Create provider-specific environment variables
 	providerEnvVars := provider.EnvVarsForProvider(provider.Config{
 		Type:      selectedProvider,
-		Model:     "sonnet",
+		Model:     model,
 		OllamaURL: provider.DefaultOllamaURL(),
 	})
 
-	if c, err := claude.NewClient("claude", 5*time.Minute, "sonnet"); err != nil {
+	if c, err := claude.NewClient("claude", 5*time.Minute, model); err != nil {
 		// Don't exit — let the TUI start and show error when user tries to chat
 		fmt.Printf("  Warning: %v\n", err)
 		fmt.Println("  Planning will not work until Claude CLI is available.")
