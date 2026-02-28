@@ -180,7 +180,8 @@ func parseStreamChunk(line string) string {
 	// Log unknown types for debugging (only non-control types)
 	if msgType != "" && msgType != "message_start" && msgType != "message_stop" &&
 		msgType != "content_block_start" && msgType != "content_block_stop" &&
-		msgType != "ping" && msgType != "message_delta" {
+		msgType != "ping" && msgType != "message_delta" &&
+		msgType != "system_limit_event" {
 		log.Printf("unknown stream-json type: %s", msgType)
 	}
 

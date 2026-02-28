@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -221,7 +220,7 @@ func selectProvider(preflightResults []preflight.CheckResult) (provider.Provider
 	switch {
 	case claudeAvailable && ollamaAvailable:
 		// Both available, prompt user for choice
-		return promptProviderChoice()
+		return promptProviderChoice(ollamaStatus)
 	case claudeAvailable:
 		// Only Claude available
 		fmt.Println("  Using Claude (cloud) provider")
@@ -236,32 +235,8 @@ func selectProvider(preflightResults []preflight.CheckResult) (provider.Provider
 	}
 }
 
-// promptProviderChoice asks the user to choose between Claude and Ollama providers.
-func promptProviderChoice() (provider.ProviderType, error) {
-	fmt.Println("  Both Claude CLI and Ollama are available.")
-	fmt.Println("  Which provider would you like to use?")
-	fmt.Println("    1. Claude (cloud) - Standard Claude Code CLI")
-	fmt.Println("    2. Ollama (local) - Local Ollama with 'ollama launch claude'")
-	fmt.Print("  Enter your choice (1 or 2): ")
-
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			return "", fmt.Errorf("failed to read input: %w", err)
-		}
-
-		choice := strings.TrimSpace(input)
-		switch choice {
-		case "1":
-			fmt.Println("  Selected Claude (cloud) provider")
-			return provider.ProviderAnthropic, nil
-		case "2":
-			fmt.Println("  Selected Ollama (local) provider")
-			return provider.ProviderOllama, nil
-		default:
-			fmt.Print("  Please enter 1 or 2: ")
-		}
-	}
+// promptProviderChoice asks the user to choose between Claude and Ollama providers
+// using an inline bubbletea TUI.
+func promptProviderChoice(ollamaStatus provider.OllamaStatus) (provider.ProviderType, error) {
+	return tui.RunProviderSelection(ollamaStatus)
 }
