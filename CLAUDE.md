@@ -61,7 +61,7 @@ go run -race .
 
 ## State Management
 The application state is stored in `.forge/state.json` with the following key components:
-- Tasks with dependency tracking and status lifecycle
+- Tasks with dependency tracking and status lifecycle (pending, in-progress, done, failed, skipped, cancelled)
 - Conversation history for context continuity
 - Project snapshots for planning context
 - Settings for execution configuration
@@ -72,6 +72,7 @@ The application supports both Anthropic Claude and Ollama providers:
 - Configure via `state.Settings.Provider`
 - Ollama integration uses reverse proxy pattern with ANTHROPIC_* env vars
 - Model selection and validation in `internal/provider/`
+- Automatic provider detection at startup with user selection when both are available
 
 ## Testing Strategy
 - Table-driven tests throughout
@@ -85,3 +86,25 @@ The application supports both Anthropic Claude and Ollama providers:
 3. **Replanning** - Update existing plans with context preservation
 4. **Task Execution** - Automated code generation, testing, and git operations
 5. **State Persistence** - Automatic saving on transitions and exits
+
+## Multi-Provider Support
+Forge supports both cloud (Anthropic Claude) and local (Ollama) execution:
+- Anthropic: Uses standard Claude CLI with default behavior
+- Ollama: Uses reverse proxy pattern or direct 'ollama launch claude' command
+- Provider selection happens at startup with automatic detection
+- Environment variables configure the connection for each provider type
+
+## Task Execution Engine
+The execution engine (`internal/executor/`) orchestrates automated development:
+- Reads tasks in dependency order
+- For each task: creates branch → executes Claude → runs tests → retries on failure → commits changes
+- Comprehensive event system for live dashboard updates
+- Real implementations for Git operations, test running, and Claude execution
+- Retry logic with context-aware prompts for failed tasks
+
+## TUI Components
+The application uses charmbracelet/bubbletea for its terminal interface:
+- Modular design with separate models for each phase
+- Streaming output support for real-time Claude responses
+- Interactive task lists with editing capabilities
+- Live execution dashboard with progress tracking

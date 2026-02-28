@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/manasm11/forge/internal/claude"
 	"github.com/manasm11/forge/internal/executor"
 	"github.com/manasm11/forge/internal/preflight"
+	"github.com/manasm11/forge/internal/provider"
 	"github.com/manasm11/forge/internal/scanner"
 	"github.com/manasm11/forge/internal/state"
 	"github.com/manasm11/forge/internal/tui"
@@ -41,6 +45,13 @@ func main() {
 	fmt.Println("  \u2713 All checks passed")
 	fmt.Println()
 
+	// 2.5. Check for provider selection (Claude vs Ollama)
+	selectedProvider, err := selectProvider(results)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error selecting provider: %v\n", err)
+		os.Exit(1)
+	}
+
 	// 3. Try loading existing forge state
 	s, err := state.Load(root)
 	if err != nil {
@@ -53,7 +64,17 @@ func main() {
 		snapshot := scanner.Scan(root)
 
 		// Initialize forge directory and state
-		s, err = state.InitForgeDir(root)
+		// Create provider configuration based on user selection
+		providerCfg := &provider.Config{
+			Type:  selectedProvider,
+			Model: "sonnet", // Default model, will be overridden by inputs phase
+		}
+		if selectedProvider == provider.ProviderOllama {
+			providerCfg.Model = "qwen3-coder:480b-cloud" // Default Ollama model
+			providerCfg.OllamaURL = provider.DefaultOllamaURL()
+		}
+
+		s, err = state.InitForgeDir(root, providerCfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing state: %v\n", err)
 			os.Exit(1)
@@ -94,13 +115,19 @@ func main() {
 
 	// 5. Create Claude client (sonnet model for planning, --max-turns 1 default)
 	var claudeClient claude.Claude
-	if c, err := claude.NewClient("claude", 5*time.Minute, "sonnet"); err != nil {
-		// Don't exit — let the TUI start and show error when user tries to chat
-		fmt.Printf("  Warning: %v\n", err)
-		fmt.Println("  Planning will not work until Claude CLI is available.")
-		fmt.Println()
+	if selectedProvider == provider.ProviderAnthropic {
+		if c, err := claude.NewClient("claude", 5*time.Minute, "sonnet"); err != nil {
+			// Don't exit — let the TUI start and show error when user tries to chat
+			fmt.Printf("  Warning: %v\n", err)
+			fmt.Println("  Planning will not work until Claude CLI is available.")
+			fmt.Println()
+		} else {
+			claudeClient = c
+		}
 	} else {
-		claudeClient = c
+		// For Ollama, we'll create a dummy client since the actual execution
+		// will be handled by the executor with the special 'ollama launch claude' command
+		fmt.Println("  Claude client will be handled by Ollama executor")
 	}
 
 	// 6. Create Claude executor for task execution
@@ -138,4 +165,86 @@ func joinFrameworks(frameworks []string) string {
 		result += " + " + frameworks[i]
 	}
 	return result
+}
+
+// selectProvider determines which provider to use based on availability and user preference.
+func selectProvider(preflightResults []preflight.CheckResult) (provider.ProviderType, error) {
+	// Check environment variable first
+	envProvider := os.Getenv("FORGE_PROVIDER")
+	if envProvider != "" {
+		switch strings.ToLower(envProvider) {
+		case "claude", "anthropic":
+			return provider.ProviderAnthropic, nil
+		case "ollama":
+			return provider.ProviderOllama, nil
+		default:
+			fmt.Printf("  Warning: Invalid FORGE_PROVIDER value '%s', ignoring.\n", envProvider)
+		}
+	}
+
+	// Check which tools are available
+	claudeAvailable := false
+	ollamaAvailable := false
+
+	for _, r := range preflightResults {
+		if r.Name == "claude" && r.Found {
+			claudeAvailable = true
+		}
+	}
+
+	// Check for Ollama availability
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ollamaStatus := provider.DetectOllama(ctx, "")
+	if ollamaStatus.Available {
+		ollamaAvailable = true
+	}
+
+	// Determine provider based on availability
+	switch {
+	case claudeAvailable && ollamaAvailable:
+		// Both available, prompt user for choice
+		return promptProviderChoice()
+	case claudeAvailable:
+		// Only Claude available
+		fmt.Println("  Using Claude (cloud) provider")
+		return provider.ProviderAnthropic, nil
+	case ollamaAvailable:
+		// Only Ollama available
+		fmt.Println("  Using Ollama (local) provider")
+		return provider.ProviderOllama, nil
+	default:
+		// Neither available
+		return "", fmt.Errorf("neither Claude CLI nor Ollama is available")
+	}
+}
+
+// promptProviderChoice asks the user to choose between Claude and Ollama providers.
+func promptProviderChoice() (provider.ProviderType, error) {
+	fmt.Println("  Both Claude CLI and Ollama are available.")
+	fmt.Println("  Which provider would you like to use?")
+	fmt.Println("    1. Claude (cloud) - Standard Claude Code CLI")
+	fmt.Println("    2. Ollama (local) - Local Ollama with 'ollama launch claude'")
+	fmt.Print("  Enter your choice (1 or 2): ")
+
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return "", fmt.Errorf("failed to read input: %w", err)
+		}
+
+		choice := strings.TrimSpace(input)
+		switch choice {
+		case "1":
+			fmt.Println("  Selected Claude (cloud) provider")
+			return provider.ProviderAnthropic, nil
+		case "2":
+			fmt.Println("  Selected Ollama (local) provider")
+			return provider.ProviderOllama, nil
+		default:
+			fmt.Print("  Please enter 1 or 2: ")
+		}
+	}
 }

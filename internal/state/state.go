@@ -403,7 +403,7 @@ func (s *State) ExecutableTasks() []Task {
 
 // InitForgeDir creates the .forge directory structure and its .gitignore.
 // Creates: .forge/, .forge/.gitignore (ignoring logs/), .forge/logs/, .forge/state.json
-func InitForgeDir(root string) (*State, error) {
+func InitForgeDir(root string, providerCfg *provider.Config) (*State, error) {
 	dir := ForgeDir(root)
 
 	// Create .forge/ and .forge/logs/
@@ -423,6 +423,16 @@ func InitForgeDir(root string) (*State, error) {
 		Phase:     PhasePlanning,
 		CreatedAt: now,
 		UpdatedAt: now,
+	}
+
+	// Initialize default settings with the selected provider
+	if providerCfg != nil {
+		s.Settings = &Settings{
+			BranchPattern: "forge/task-{id}",
+			MaxRetries:    3,
+			AutoPR:        true,
+			Provider:      *providerCfg,
+		}
 	}
 
 	if err := Save(root, s); err != nil {
