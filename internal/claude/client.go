@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -40,6 +41,7 @@ type Client struct {
 	timeout    time.Duration
 	model      string // model to use (e.g., "sonnet", "opus")
 	maxTurns   int    // max turns per invocation (default 1 for planning)
+	envVars    map[string]string // environment variables to pass to the CLI
 }
 
 // NewClient creates a new Claude Code CLI client.
@@ -66,6 +68,7 @@ func NewClient(claudePath string, timeout time.Duration, model string) (*Client,
 		timeout:    timeout,
 		model:      model,
 		maxTurns:   1,
+		envVars:    make(map[string]string),
 	}, nil
 }
 
@@ -80,6 +83,16 @@ func (c *Client) WithModel(model string) *Client {
 func (c *Client) WithMaxTurns(n int) *Client {
 	clone := *c
 	clone.maxTurns = n
+	return &clone
+}
+
+// WithEnvVars returns a copy of the client with environment variables.
+func (c *Client) WithEnvVars(envVars map[string]string) *Client {
+	clone := *c
+	clone.envVars = make(map[string]string)
+	for k, v := range envVars {
+		clone.envVars[k] = v
+	}
 	return &clone
 }
 
@@ -135,6 +148,15 @@ func (c *Client) runClaude(ctx context.Context, args []string) (*Response, error
 
 	cmd := exec.CommandContext(ctx, c.claudePath, args...)
 
+	// Set environment variables if provided
+	if len(c.envVars) > 0 {
+		env := os.Environ()
+		for k, v := range c.envVars {
+			env = append(env, k+"="+v)
+		}
+		cmd.Env = env
+	}
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -155,6 +177,15 @@ func (c *Client) runClaudeStreaming(ctx context.Context, args []string, onChunk 
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, c.claudePath, args...)
+
+	// Set environment variables if provided
+	if len(c.envVars) > 0 {
+		env := os.Environ()
+		for k, v := range c.envVars {
+			env = append(env, k+"="+v)
+		}
+		cmd.Env = env
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
