@@ -181,7 +181,7 @@ func parseStreamChunk(line string) string {
 	if msgType != "" && msgType != "message_start" && msgType != "message_stop" &&
 		msgType != "content_block_start" && msgType != "content_block_stop" &&
 		msgType != "ping" && msgType != "message_delta" &&
-		msgType != "system_limit_event" {
+		msgType != "system_limit_event" && msgType != "rate_limit_event" {
 		log.Printf("unknown stream-json type: %s", msgType)
 	}
 

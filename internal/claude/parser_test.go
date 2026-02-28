@@ -86,6 +86,11 @@ func TestParseStreamChunk(t *testing.T) {
 			input: `{"type":"message_delta","delta":{"stop_reason":"end_turn"}}`,
 			want:  "",
 		},
+		{
+			name:  "rate_limit_event returns empty",
+			input: `{"type":"rate_limit_event"}`,
+			want:  "",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
