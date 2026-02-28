@@ -32,6 +32,7 @@ func (e *RealClaudeExecutor) Execute(ctx context.Context, opts ExecuteOpts) (*Ex
 	// Standard Claude CLI execution
 	args := []string{
 		"--print",
+		"--verbose",
 		"--output-format", "stream-json",
 	}
 

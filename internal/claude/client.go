@@ -123,6 +123,7 @@ func (c *Client) SendWithSystem(ctx context.Context, systemPrompt, userMessage s
 func (c *Client) SendStreaming(ctx context.Context, prompt string, onChunk StreamCallback) (*Response, error) {
 	args := []string{
 		"-p", prompt,
+		"--verbose",
 		"--output-format", "stream-json",
 		"--max-turns", fmt.Sprintf("%d", c.maxTurns),
 		"--model", c.model,
@@ -135,6 +136,7 @@ func (c *Client) ContinueStreaming(ctx context.Context, message string, onChunk 
 	args := []string{
 		"-p", message,
 		"--continue",
+		"--verbose",
 		"--output-format", "stream-json",
 		"--max-turns", fmt.Sprintf("%d", c.maxTurns),
 		"--model", c.model,
