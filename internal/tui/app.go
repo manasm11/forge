@@ -92,6 +92,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit
+		case "ctrl+p":
+			// Go to previous phase
+			return m, m.transitionToPrevPhase()
+		case "ctrl+n":
+			// Go to next phase
+			return m, m.transitionToNextPhase()
 		}
 
 	case TransitionMsg:
@@ -224,4 +230,59 @@ func (m *AppModel) renderStatusBar() string {
 	return StatusBar.
 		Width(m.width).
 		Render(help)
+}
+
+// transitionToPrevPhase moves to the previous phase in the workflow.
+func (m *AppModel) transitionToPrevPhase() tea.Cmd {
+	var prevPhase state.Phase
+	switch m.phase {
+	case state.PhaseReview:
+		prevPhase = state.PhasePlanning
+	case state.PhaseInputs:
+		prevPhase = state.PhaseReview
+	case state.PhaseExecution:
+		prevPhase = state.PhaseInputs
+	default:
+		return nil
+	}
+	return func() tea.Msg {
+		return TransitionMsg{To: prevPhase}
+	}
+}
+
+// transitionToNextPhase moves to the next phase in the workflow.
+// It validates that the transition is valid before proceeding.
+func (m *AppModel) transitionToNextPhase() tea.Cmd {
+	var nextPhase state.Phase
+	var errMsg string
+
+	switch m.phase {
+	case state.PhasePlanning:
+		// Check if there are any tasks defined
+		if len(m.state.Tasks) == 0 {
+			errMsg = "no tasks defined yet"
+		} else {
+			nextPhase = state.PhaseReview
+		}
+	case state.PhaseReview:
+		// Use CanConfirm to validate task list
+		errMsg = CanConfirm(m.state.Tasks)
+		if errMsg == "" {
+			nextPhase = state.PhaseInputs
+		}
+	case state.PhaseInputs:
+		nextPhase = state.PhaseExecution
+	default:
+		return nil
+	}
+
+	if errMsg != "" {
+		// Store error to display
+		m.err = fmt.Errorf(errMsg)
+		return nil
+	}
+
+	return func() tea.Msg {
+		return TransitionMsg{To: nextPhase}
+	}
 }

@@ -478,8 +478,12 @@ func (m ExecutionModel) renderFooter() string {
 	var help string
 	if m.status == ExecRunning {
 		help = "  j/k navigate · f follow · l logs · q cancel"
+	} else if m.status == ExecComplete {
+		help = "  j/k navigate · l logs · r replan · ctrl+p back · q quit"
+	} else if m.status == ExecStopped {
+		help = "  j/k navigate · l logs · enter retry · r replan · ctrl+p back · q quit"
 	} else {
-		help = "  j/k navigate · l logs · r replan · q quit"
+		help = "  j/k navigate · l logs · r replan · ctrl+p back · q quit"
 	}
 
 	return HelpStyle.Render(help)
