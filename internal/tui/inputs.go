@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/manasm11/forge/internal/generator"
 	"github.com/manasm11/forge/internal/provider"
+	"github.com/manasm11/forge/internal/scanner"
 	"github.com/manasm11/forge/internal/state"
 )
 
@@ -156,8 +157,16 @@ func populateFromSettings(fields []InputField, settings *state.Settings) {
 			if settings.BranchPattern != "" {
 				fields[i].Value = settings.BranchPattern
 			}
+		case "base_branch":
+			if settings.BaseBranch != "" {
+				fields[i].Value = settings.BaseBranch
+			}
 		case "max_retries":
 			fields[i].Value = fmt.Sprintf("%d", settings.MaxRetries)
+		case "remote_url":
+			if settings.RemoteURL != "" {
+				fields[i].Value = settings.RemoteURL
+			}
 		case "auto_pr":
 			if settings.AutoPR {
 				fields[i].Value = "true"
@@ -505,6 +514,26 @@ func (m InputsModel) confirm() (InputsModel, tea.Cmd) {
 	// Build settings
 	settings := BuildSettingsFromFieldsWithProvider(m.fields, m.mcpServers, m.maxTurns, providerCfg)
 	m.state.Settings = settings
+
+	// If user provided a remote URL, add it to git
+	if settings.RemoteURL != "" {
+		if err := scanner.AddRemote(m.stateRoot, "origin", settings.RemoteURL); err != nil {
+			m.flashMsg = fmt.Sprintf("Warning: Failed to add remote: %v", err)
+			m.flashErr = true
+			// Don't fail - continue anyway
+		}
+	}
+
+	// Check if remote exists for PR - show warning if auto_pr is enabled but no remote
+	if settings.AutoPR && settings.RemoteURL == "" {
+		// Check current remote
+		currentRemote := scanner.GitInitialized(m.stateRoot)
+		if !currentRemote {
+			m.flashMsg = "Warning: No remote configured. PR creation disabled."
+			m.flashErr = true
+			settings.AutoPR = false
+		}
+	}
 
 	// Write .forge/context.md
 	contextContent := generator.GenerateContextFile(m.state)

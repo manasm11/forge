@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/manasm11/forge/internal/provider"
+	"github.com/manasm11/forge/internal/scanner"
 )
 
 type Phase string
@@ -96,17 +97,20 @@ type Task struct {
 }
 
 type Settings struct {
-	TestCommand   string            `json:"test_command,omitempty"`
-	BuildCommand  string            `json:"build_command,omitempty"`
-	BranchPattern string            `json:"branch_pattern"`
+	TestCommand    string            `json:"test_command,omitempty"`
+	BuildCommand   string            `json:"build_command,omitempty"`
+	BranchPattern  string            `json:"branch_pattern"`
+	BaseBranch    string            `json:"base_branch"`
 	MaxRetries    int               `json:"max_retries"`
 	AutoPR        bool              `json:"auto_pr"`
 	ClaudeModel   string            `json:"claude_model,omitempty"`
-	MaxTurns      MaxTurnsConfig    `json:"max_turns"`
+	MaxTurns      MaxTurnsConfig   `json:"max_turns"`
 	MCPServers    []MCPServerConfig `json:"mcp_servers,omitempty"`
 	EnvVars       map[string]string `json:"env_vars,omitempty"`
 	ExtraContext  string            `json:"extra_context,omitempty"`
-	Provider      provider.Config   `json:"provider"`           // NEW
+	Provider      provider.Config    `json:"provider"`
+	GitInitialized bool             `json:"git_initialized,omitempty"`
+	RemoteURL     string            `json:"remote_url,omitempty"`
 }
 
 // MaxTurnsConfig maps task complexity to max claude turns.
@@ -403,7 +407,7 @@ func (s *State) ExecutableTasks() []Task {
 
 // InitForgeDir creates the .forge directory structure and its .gitignore.
 // Creates: .forge/, .forge/.gitignore (ignoring logs/), .forge/logs/, .forge/state.json
-func InitForgeDir(root string, providerCfg *provider.Config) (*State, error) {
+func InitForgeDir(root string, providerCfg *provider.Config, gitInitialized bool, remoteURL string) (*State, error) {
 	dir := ForgeDir(root)
 
 	// Create .forge/ and .forge/logs/
@@ -427,11 +431,21 @@ func InitForgeDir(root string, providerCfg *provider.Config) (*State, error) {
 
 	// Initialize default settings with the selected provider
 	if providerCfg != nil {
+		// Default base branch - will be overridden in Inputs phase
+		baseBranch := "main"
+		if gitInitialized {
+			// Try to detect existing branch
+			baseBranch = scanner.DetectBaseBranch(root)
+		}
+
 		s.Settings = &Settings{
-			BranchPattern: "forge/task-{id}",
-			MaxRetries:    3,
-			AutoPR:        true,
-			Provider:      *providerCfg,
+			BranchPattern:  "forge/task-{id}",
+			BaseBranch:    baseBranch,
+			MaxRetries:     3,
+			AutoPR:         true,
+			Provider:       *providerCfg,
+			GitInitialized: gitInitialized,
+			RemoteURL:      remoteURL,
 		}
 	}
 

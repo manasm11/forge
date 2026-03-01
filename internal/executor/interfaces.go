@@ -24,7 +24,7 @@ type GitOps interface {
 	StageAll(ctx context.Context) error
 
 	// HasStagedChanges returns true if there are staged changes to commit.
-	HasStagedChanges(ctx context.Context) (bool, error)
+	HasStagedChanges(ctx context.Context) (bool, bool, error)
 
 	// HasUnstagedChanges returns true if there are unstaged/untracked changes.
 	HasUnstagedChanges(ctx context.Context) (bool, error)
@@ -34,6 +34,9 @@ type GitOps interface {
 
 	// Push pushes the current branch to origin.
 	Push(ctx context.Context) error
+
+	// Merge merges a branch into the current branch.
+	Merge(ctx context.Context, branch string) error
 
 	// LatestSHA returns the HEAD commit SHA.
 	LatestSHA(ctx context.Context) (string, error)
@@ -135,6 +138,8 @@ type RunnerConfig struct {
 	Claude      ClaudeExecutor
 	OnEvent     EventHandler
 	ContextFile string // contents of .forge/context.md
+	BaseBranch  string // base branch for merging
+	RemoteURL   string // remote URL (empty if no remote)
 }
 
 // TaskOutcome is the result of executing a single task.

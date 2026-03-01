@@ -184,12 +184,28 @@ func DefaultInputFields(snapshot *state.ProjectSnapshot) []InputField {
 			HelpText:  "{id} is replaced with the task ID",
 		},
 		{
+			Key:       "base_branch",
+			Label:     "Base Branch",
+			Default:   "main",
+			Required:  true,
+			FieldType: FieldText,
+			HelpText:  "Branch to merge task branches into",
+		},
+		{
 			Key:       "max_retries",
 			Label:     "Max Retries per Task",
 			Default:   "3",
 			Required:  false,
 			FieldType: FieldNumber,
 			HelpText:  "How many times to retry a failed task",
+		},
+		{
+			Key:       "remote_url",
+			Label:     "Remote URL (optional)",
+			Default:   "",
+			Required:  false,
+			FieldType: FieldText,
+			HelpText:  "Git remote URL (e.g., https://github.com/user/repo.git)",
 		},
 		{
 			Key:       "auto_pr",
@@ -293,6 +309,8 @@ func BuildSettingsFromFields(fields []InputField, mcpServers []MCPServer, maxTur
 	s.TestCommand = fieldMap["test_command"]
 	s.BuildCommand = fieldMap["build_command"]
 	s.BranchPattern = fieldMap["branch_pattern"]
+	s.BaseBranch = fieldMap["base_branch"]
+	s.RemoteURL = fieldMap["remote_url"]
 	s.AutoPR = fieldMap["auto_pr"] == "true"
 	s.ClaudeModel = fieldMap["claude_model"]
 	s.ExtraContext = fieldMap["extra_context"]

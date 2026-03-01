@@ -18,8 +18,9 @@ type MockGitOps struct {
 	StageAllCalls int
 	StageAllErr   error
 
-	HasStagedResult bool
-	HasStagedErr    error
+	HasStagedResult    bool
+	HasStagedUnstaged bool // second return value (has unstaged)
+	HasStagedErr      error
 
 	HasUnstagedResult bool
 
@@ -29,6 +30,9 @@ type MockGitOps struct {
 
 	PushCalls int
 	PushErr   error
+
+	MergeCalls []string // branches to merge
+	MergeErr  error
 
 	LatestSHAResult string
 	LatestSHAErr    error
@@ -74,12 +78,17 @@ func (m *MockGitOps) StageAll(ctx context.Context) error {
 	return m.StageAllErr
 }
 
-func (m *MockGitOps) HasStagedChanges(ctx context.Context) (bool, error) {
-	return m.HasStagedResult, m.HasStagedErr
+func (m *MockGitOps) HasStagedChanges(ctx context.Context) (bool, bool, error) {
+	return m.HasStagedResult, m.HasStagedUnstaged, m.HasStagedErr
 }
 
 func (m *MockGitOps) HasUnstagedChanges(ctx context.Context) (bool, error) {
 	return m.HasUnstagedResult, nil
+}
+
+func (m *MockGitOps) Merge(ctx context.Context, branch string) error {
+	m.MergeCalls = append(m.MergeCalls, branch)
+	return m.MergeErr
 }
 
 func (m *MockGitOps) Commit(ctx context.Context, message string) (string, error) {

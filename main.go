@@ -62,6 +62,18 @@ func main() {
 		// 4a. New forge session — scan the project directory
 		snapshot := scanner.Scan(root)
 
+		// Auto-initialize git if not a git repo
+		gitResult := scanner.InitGit(root)
+		if !gitResult.Initialized {
+			fmt.Printf("  Warning: %s\n", gitResult.Error)
+		} else if !snapshot.IsExisting {
+			// Only show git init message for new projects
+			fmt.Println("  Initialized new git repository")
+			if gitResult.RemoteURL == "" {
+				fmt.Println("  Warning: No remote repository configured")
+			}
+		}
+
 		// Initialize forge directory and state
 		// Create provider configuration based on user selection
 		providerCfg := &provider.Config{
@@ -73,7 +85,7 @@ func main() {
 			providerCfg.OllamaURL = provider.DefaultOllamaURL()
 		}
 
-		s, err = state.InitForgeDir(root, providerCfg)
+		s, err = state.InitForgeDir(root, providerCfg, gitResult.Initialized, gitResult.RemoteURL)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing state: %v\n", err)
 			os.Exit(1)

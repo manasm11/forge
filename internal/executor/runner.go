@@ -26,10 +26,17 @@ func NewRunner(cfg RunnerConfig) *Runner {
 // Returns when all tasks are done, failed, or skipped.
 // Can be cancelled via context.
 func (r *Runner) Run(ctx context.Context) error {
-	baseBranch, err := r.cfg.Git.CurrentBranch(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current branch: %w", err)
+	baseBranch := r.cfg.BaseBranch
+	if baseBranch == "" {
+		var err error
+		baseBranch, err = r.cfg.Git.CurrentBranch(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get current branch: %w", err)
+		}
 	}
+
+	// Track completed task branches for merging
+	var completedBranches []string
 
 	for {
 		if ctx.Err() != nil {
@@ -56,6 +63,10 @@ func (r *Runner) Run(ctx context.Context) error {
 			now := time.Now()
 			stateTask.CompletedAt = &now
 			stateTask.GitSHA = outcome.SHA
+			// Track branch for merging
+			if stateTask.Branch != "" {
+				completedBranches = append(completedBranches, stateTask.Branch)
+			}
 		}
 		stateTask.Retries = outcome.Retries
 
@@ -71,6 +82,28 @@ func (r *Runner) Run(ctx context.Context) error {
 		// Emit events for task outcome
 		if outcome.Status == state.TaskDone {
 			r.emit(TaskEvent{TaskID: stateTask.ID, Type: EventTaskDone, Message: "completed"})
+		}
+	}
+
+	// After all tasks, handle merging/pushing
+	if len(completedBranches) > 0 {
+		// Merge all completed branches into base branch
+		for _, branch := range completedBranches {
+			if err := r.cfg.Git.Merge(ctx, branch); err != nil {
+				r.emit(TaskEvent{Type: EventError, Message: fmt.Sprintf("failed to merge %s: %v", branch, err)})
+			}
+		}
+
+		// Checkout base branch after merging
+		r.cfg.Git.CheckoutBranch(ctx, baseBranch)
+
+		// Push if remote exists
+		if r.cfg.RemoteURL != "" {
+			if err := r.cfg.Git.Push(ctx); err != nil {
+				r.emit(TaskEvent{Type: EventError, Message: fmt.Sprintf("failed to push: %v", err)})
+			}
+		} else {
+			r.emit(TaskEvent{Type: EventPush, Message: "No remote configured - skipped push"})
 		}
 	}
 

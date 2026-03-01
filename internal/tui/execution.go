@@ -142,6 +142,8 @@ func (m *ExecutionModel) StartExecution() tea.Cmd {
 			Tests:       executor.NewRealTestRunner(root),
 			Claude:      claude,
 			ContextFile: contextContent,
+			BaseBranch:  s.Settings.BaseBranch,
+			RemoteURL:   s.Settings.RemoteURL,
 			OnEvent: func(e executor.TaskEvent) {
 				p.Send(ExecutionEventMsg{Event: e})
 			},

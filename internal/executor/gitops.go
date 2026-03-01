@@ -57,12 +57,14 @@ func (g *RealGitOps) StageAll(ctx context.Context) error {
 	return err
 }
 
-func (g *RealGitOps) HasStagedChanges(ctx context.Context) (bool, error) {
+func (g *RealGitOps) HasStagedChanges(ctx context.Context) (bool, bool, error) {
 	out, err := g.run(ctx, "diff", "--cached", "--name-only")
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	return out != "", nil
+	hasStaged := out != ""
+	hasUnstaged, _ := g.HasUnstagedChanges(ctx)
+	return hasStaged, hasUnstaged, nil
 }
 
 func (g *RealGitOps) HasUnstagedChanges(ctx context.Context) (bool, error) {
@@ -86,6 +88,11 @@ func (g *RealGitOps) Commit(ctx context.Context, message string) (string, error)
 
 func (g *RealGitOps) Push(ctx context.Context) error {
 	_, err := g.run(ctx, "push", "-u", "origin", "HEAD")
+	return err
+}
+
+func (g *RealGitOps) Merge(ctx context.Context, branch string) error {
+	_, err := g.run(ctx, "merge", "--no-ff", branch)
 	return err
 }
 
