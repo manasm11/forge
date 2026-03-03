@@ -97,16 +97,16 @@ func (c *Client) WithEnvVars(envVars map[string]string) *Client {
 }
 
 // Send sends a one-shot message to Claude Code (non-streaming).
-// Runs: claude --print --prompt "<prompt>" --output-format json
+// Runs: claude --print --output-format json "<prompt>"
 func (c *Client) Send(ctx context.Context, prompt string) (*Response, error) {
-	args := []string{"--print", "--prompt", prompt, "--output-format", "json"}
+	args := []string{"--print", "--output-format", "json", prompt}
 	return c.runClaude(ctx, args)
 }
 
 // Continue sends a follow-up message in an existing session (non-streaming).
-// Runs: claude --print --prompt "<message>" --continue --output-format json
+// Runs: claude --print --continue --output-format json "<message>"
 func (c *Client) Continue(ctx context.Context, message string) (*Response, error) {
-	args := []string{"--print", "--prompt", message, "--continue", "--output-format", "json"}
+	args := []string{"--print", "--continue", "--output-format", "json", message}
 	return c.runClaude(ctx, args)
 }
 
@@ -127,7 +127,7 @@ func (c *Client) SendStreaming(ctx context.Context, prompt string, onChunk Strea
 		"--include-partial-messages",
 		"--max-turns", fmt.Sprintf("%d", c.maxTurns),
 		"--model", c.model,
-		"--prompt", prompt,
+		prompt,
 	}
 	return c.runClaudeStreaming(ctx, args, onChunk)
 }
@@ -141,7 +141,7 @@ func (c *Client) ContinueStreaming(ctx context.Context, message string, onChunk 
 		"--include-partial-messages",
 		"--max-turns", fmt.Sprintf("%d", c.maxTurns),
 		"--model", c.model,
-		"--prompt", message,
+		message,
 	}
 	return c.runClaudeStreaming(ctx, args, onChunk)
 }

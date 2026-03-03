@@ -49,7 +49,7 @@ func (e *RealClaudeExecutor) Execute(ctx context.Context, opts ExecuteOpts) (*Ex
 		args = append(args, "--allowedTools", strings.Join(opts.AllowedTools, ","))
 	}
 
-	args = append(args, "--prompt", opts.Prompt)
+	args = append(args, opts.Prompt)
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	if opts.WorkDir != "" {
