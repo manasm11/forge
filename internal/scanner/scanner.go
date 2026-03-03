@@ -4,15 +4,30 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/manasm11/forge/internal/state"
 )
+
+// ProjectSnapshot holds detected project context for the planning phase.
+type ProjectSnapshot struct {
+	IsExisting    bool     `json:"is_existing"`
+	Language      string   `json:"language,omitempty"`
+	Frameworks    []string `json:"frameworks,omitempty"`
+	Dependencies  []string `json:"dependencies,omitempty"`
+	FileCount     int      `json:"file_count"`
+	LOC           int      `json:"loc_estimate"`
+	Structure     string   `json:"structure"`
+	ReadmeContent string   `json:"readme,omitempty"`
+	ClaudeMD      string   `json:"claude_md,omitempty"`
+	GitBranch     string   `json:"git_branch,omitempty"`
+	GitDirty      bool     `json:"git_dirty"`
+	RecentCommits []string `json:"recent_commits,omitempty"`
+	KeyFiles      []string `json:"key_files,omitempty"`
+}
 
 // Scan analyzes the project directory and returns a snapshot.
 // It never fails — if any individual scan step errors, it
 // just leaves that field empty and continues.
-func Scan(root string) state.ProjectSnapshot {
-	snap := state.ProjectSnapshot{}
+func Scan(root string) ProjectSnapshot {
+	snap := ProjectSnapshot{}
 
 	// Check if directory has any code files (not just .forge/)
 	if !hasCodeFiles(root) {

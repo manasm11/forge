@@ -14,6 +14,9 @@ import (
 	"github.com/manasm11/forge/internal/scanner"
 )
 
+// Re-export ProjectSnapshot from scanner for backward compatibility.
+type ProjectSnapshot = scanner.ProjectSnapshot
+
 type Phase string
 
 const (
@@ -46,23 +49,6 @@ type State struct {
 	Snapshot            *ProjectSnapshot  `json:"snapshot,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
-}
-
-// ProjectSnapshot holds detected project context for the planning phase.
-type ProjectSnapshot struct {
-	IsExisting    bool     `json:"is_existing"`
-	Language      string   `json:"language,omitempty"`
-	Frameworks    []string `json:"frameworks,omitempty"`
-	Dependencies  []string `json:"dependencies,omitempty"`
-	FileCount     int      `json:"file_count"`
-	LOC           int      `json:"loc_estimate"`
-	Structure     string   `json:"structure"`
-	ReadmeContent string   `json:"readme,omitempty"`
-	ClaudeMD      string   `json:"claude_md,omitempty"`
-	GitBranch     string   `json:"git_branch,omitempty"`
-	GitDirty      bool     `json:"git_dirty"`
-	RecentCommits []string `json:"recent_commits,omitempty"`
-	KeyFiles      []string `json:"key_files,omitempty"`
 }
 
 // PlanRevision records metadata each time the plan changes.

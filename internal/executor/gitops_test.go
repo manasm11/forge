@@ -50,7 +50,10 @@ func TestRealGitOps_StageCommit(t *testing.T) {
 		t.Fatalf("StageAll error: %v", err)
 	}
 
-	has, _ := g.HasStagedChanges(ctx)
+	has, _, err := g.HasStagedChanges(ctx)
+	if err != nil {
+		t.Fatalf("HasStagedChanges error: %v", err)
+	}
 	if !has {
 		t.Error("should have staged changes")
 	}
@@ -114,7 +117,10 @@ func TestRealGitOps_ResetHard(t *testing.T) {
 		t.Fatalf("ResetHard error: %v", err)
 	}
 
-	has, _ := g.HasStagedChanges(ctx)
+	has, _, err := g.HasStagedChanges(ctx)
+	if err != nil {
+		t.Fatalf("HasStagedChanges error: %v", err)
+	}
 	if has {
 		t.Error("should have no staged changes after reset")
 	}

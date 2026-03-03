@@ -278,7 +278,7 @@ func (m *AppModel) transitionToNextPhase() tea.Cmd {
 
 	if errMsg != "" {
 		// Store error to display
-		m.err = fmt.Errorf(errMsg)
+		m.err = fmt.Errorf("%s", errMsg)
 		return nil
 	}
 

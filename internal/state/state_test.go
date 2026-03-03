@@ -884,7 +884,7 @@ func TestInitForgeDir(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 
-	s, err := InitForgeDir(root, nil)
+	s, err := InitForgeDir(root, nil, false, "")
 	if err != nil {
 		t.Fatalf("InitForgeDir() error: %v", err)
 	}

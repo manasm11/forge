@@ -222,7 +222,10 @@ func (r *Runner) RunTask(ctx context.Context, task *state.Task) TaskOutcome {
 				return r.fail(task.ID, "stage: "+err.Error(), &log, attempt)
 			}
 
-			hasStagedChanges, _ := r.cfg.Git.HasStagedChanges(ctx)
+			hasStagedChanges, _, err := r.cfg.Git.HasStagedChanges(ctx)
+			if err != nil {
+				return r.fail(task.ID, "check staged changes: "+err.Error(), &log, attempt)
+			}
 			if !hasStagedChanges {
 				return r.fail(task.ID, "no code changes produced", &log, attempt)
 			}
