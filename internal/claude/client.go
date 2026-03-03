@@ -97,16 +97,16 @@ func (c *Client) WithEnvVars(envVars map[string]string) *Client {
 }
 
 // Send sends a one-shot message to Claude Code (non-streaming).
-// Runs: claude -p "<prompt>" --output-format json
+// Runs: claude --print --prompt "<prompt>" --output-format json
 func (c *Client) Send(ctx context.Context, prompt string) (*Response, error) {
-	args := []string{"-p", prompt, "--output-format", "json"}
+	args := []string{"--print", "--prompt", prompt, "--output-format", "json"}
 	return c.runClaude(ctx, args)
 }
 
 // Continue sends a follow-up message in an existing session (non-streaming).
-// Runs: claude -p "<message>" --continue --output-format json
+// Runs: claude --print --prompt "<message>" --continue --output-format json
 func (c *Client) Continue(ctx context.Context, message string) (*Response, error) {
-	args := []string{"-p", message, "--continue", "--output-format", "json"}
+	args := []string{"--print", "--prompt", message, "--continue", "--output-format", "json"}
 	return c.runClaude(ctx, args)
 }
 
@@ -122,11 +122,12 @@ func (c *Client) SendWithSystem(ctx context.Context, systemPrompt, userMessage s
 // Returns the complete assembled response when the stream ends.
 func (c *Client) SendStreaming(ctx context.Context, prompt string, onChunk StreamCallback) (*Response, error) {
 	args := []string{
-		"-p", prompt,
+		"--print",
 		"--output-format", "stream-json",
 		"--include-partial-messages",
 		"--max-turns", fmt.Sprintf("%d", c.maxTurns),
 		"--model", c.model,
+		"--prompt", prompt,
 	}
 	return c.runClaudeStreaming(ctx, args, onChunk)
 }
@@ -134,12 +135,13 @@ func (c *Client) SendStreaming(ctx context.Context, prompt string, onChunk Strea
 // ContinueStreaming sends a follow-up message in the existing session and streams the response.
 func (c *Client) ContinueStreaming(ctx context.Context, message string, onChunk StreamCallback) (*Response, error) {
 	args := []string{
-		"-p", message,
+		"--print",
 		"--continue",
 		"--output-format", "stream-json",
 		"--include-partial-messages",
 		"--max-turns", fmt.Sprintf("%d", c.maxTurns),
 		"--model", c.model,
+		"--prompt", message,
 	}
 	return c.runClaudeStreaming(ctx, args, onChunk)
 }
